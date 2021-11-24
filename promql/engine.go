@@ -1638,24 +1638,24 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 	refTime := ts - durationMilliseconds(node.Offset)
 	var t int64
 	var v float64
-	var h *histogram.Histogram
+	var h *histogram.FloatHistogram
 
 	valueType := it.Seek(refTime)
 	switch valueType {
-	case storage.ValNone:
+	case chunkenc.ValNone:
 		if it.Err() != nil {
 			ev.error(it.Err())
 		}
-	case storage.ValFloat:
+	case chunkenc.ValFloat:
 		t, v = it.Values()
-	case storage.ValHistogram:
-		t, h = it.HistogramValues()
+	case chunkenc.ValHistogram, chunkenc.ValFloatHistogram:
+		t, h = it.FloatHistogramValues()
 	default:
 		panic(fmt.Errorf("unknown value type %v", valueType))
 	}
-	if valueType == storage.ValNone || t > refTime {
+	if valueType == chunkenc.ValNone || t > refTime {
 		var ok bool
-		t, v, h, ok = it.PeekPrev()
+		t, v, _, h, ok = it.PeekPrev()
 		if !ok || t < refTime-durationMilliseconds(ev.lookbackDelta) {
 			return 0, 0, nil, false
 		}

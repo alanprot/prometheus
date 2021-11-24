@@ -428,8 +428,6 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, isoState *isolationState, ch
 		msIter.total = numSamples
 		msIter.stopAfter = stopAfter
 		msIter.buf = s.sampleBuf
-		msIter.histogramBuf = s.histogramBuf
-		msIter.histogramSeries = s.histogramSeries
 		return msIter
 	}
 	return &memSafeIterator{
@@ -438,10 +436,8 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, isoState *isolationState, ch
 			i:         -1,
 			stopAfter: stopAfter,
 		},
-		total:           numSamples,
-		buf:             s.sampleBuf,
-		histogramBuf:    s.histogramBuf,
-		histogramSeries: s.histogramSeries,
+		total: numSamples,
+		buf:   s.sampleBuf,
 	}
 }
 
@@ -450,52 +446,38 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, isoState *isolationState, ch
 type memSafeIterator struct {
 	stopIterator
 
-	histogramSeries bool
-	total           int
-	buf             [4]sample
-	histogramBuf    [4]histogramSample
+	total int
+	buf   [4]sample
 }
 
-func (it *memSafeIterator) Seek(t int64) bool {
+func (it *memSafeIterator) Seek(t int64) chunkenc.ValueType {
 	if it.Err() != nil {
-		return false
+		return chunkenc.ValNone
 	}
 
 	var ts int64
-	if it.histogramSeries {
-		ts, _ = it.AtHistogram()
-	} else {
-		ts, _ = it.At()
+	var valueType chunkenc.ValueType
+	ts = it.AtT()
+
+	for t > ts || it.i == -1 {
+		if valueType = it.Next(); valueType == chunkenc.ValNone {
+			return chunkenc.ValNone
+		}
+		ts = it.AtT()
 	}
 
-	if it.histogramSeries {
-		for t > ts || it.i == -1 {
-			if !it.Next() {
-				return false
-			}
-			ts, _ = it.AtHistogram()
-		}
-	} else {
-		for t > ts || it.i == -1 {
-			if !it.Next() {
-				return false
-			}
-			ts, _ = it.At()
-		}
-	}
-
-	return true
+	return valueType
 }
 
-func (it *memSafeIterator) Next() bool {
+func (it *memSafeIterator) Next() chunkenc.ValueType {
 	if it.i+1 >= it.stopAfter {
-		return false
+		return chunkenc.ValNone
 	}
 	it.i++
 	if it.total-it.i > 4 {
 		return it.Iterator.Next()
 	}
-	return true
+	return it.buf[4-(it.total-it.i)].Type()
 }
 
 func (it *memSafeIterator) At() (int64, float64) {
@@ -510,8 +492,19 @@ func (it *memSafeIterator) AtHistogram() (int64, *histogram.Histogram) {
 	if it.total-it.i > 4 {
 		return it.Iterator.AtHistogram()
 	}
-	s := it.histogramBuf[4-(it.total-it.i)]
+	s := it.buf[4-(it.total-it.i)]
 	return s.t, s.h
+}
+
+func (it *memSafeIterator) AtFloatHistogram() (int64, *histogram.FloatHistogram) {
+	if it.total-it.i > 4 {
+		return it.Iterator.AtFloatHistogram()
+	}
+	s := it.buf[4-(it.total-it.i)]
+	if s.fh != nil {
+		return s.t, s.fh
+	}
+	return s.t, s.h.ToFloat()
 }
 
 // stopIterator wraps an Iterator, but only returns the first
@@ -522,9 +515,9 @@ type stopIterator struct {
 	i, stopAfter int
 }
 
-func (it *stopIterator) Next() bool {
+func (it *stopIterator) Next() chunkenc.ValueType {
 	if it.i+1 >= it.stopAfter {
-		return false
+		return chunkenc.ValNone
 	}
 	it.i++
 	return it.Iterator.Next()

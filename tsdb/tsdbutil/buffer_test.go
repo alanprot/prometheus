@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
-	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
 func TestSampleRing(t *testing.T) {
@@ -156,10 +155,6 @@ func (it *listSeriesIterator) At() (int64, float64) {
 func (it *listSeriesIterator) AtHistogram() (int64, *histogram.Histogram) {
 	s := it.list[it.idx]
 	return s.t, s.h
-}
-
-func (it *listSeriesIterator) ChunkEncoding() chunkenc.Encoding {
-	return chunkenc.EncXOR
 }
 
 func (it *listSeriesIterator) Next() bool {

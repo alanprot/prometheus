@@ -1126,7 +1126,7 @@ func TestDeletedIterator_WithSeek(t *testing.T) {
 
 		require.Equal(t, c.ok, it.Seek(c.seek))
 		if c.ok {
-			ts, _ := it.At()
+			ts := it.AtT()
 			require.Equal(t, c.seekedTs, ts)
 		}
 	}
