@@ -49,19 +49,19 @@ import (
 	"github.com/prometheus/prometheus/tsdb/wal"
 )
 
-func newTestHead(t testing.TB, chunkRange int64, compressWAL bool) (*Head, *wal.WAL) {
+func newTestHead(t testing.TB, chunkRange int64, compressWAL bool) (*Head, *wal.WAL, *prometheus.Registry) {
 	dir, err := ioutil.TempDir("", "test")
 	require.NoError(t, err)
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, compressWAL)
 	require.NoError(t, err)
-
+	r := prometheus.NewRegistry()
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = chunkRange
 	opts.ChunkDirRoot = dir
 	opts.EnableExemplarStorage = true
 	opts.MaxExemplars.Store(config.DefaultExemplarsConfig.MaxExemplars)
 
-	h, err := NewHead(nil, nil, wlog, opts, nil)
+	h, err := NewHead(r, nil, wlog, opts, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(_ chunks.HeadSeriesRef, _ chunks.ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
@@ -69,12 +69,12 @@ func newTestHead(t testing.TB, chunkRange int64, compressWAL bool) (*Head, *wal.
 	t.Cleanup(func() {
 		require.NoError(t, os.RemoveAll(dir))
 	})
-	return h, wlog
+	return h, wlog, r
 }
 
 func BenchmarkCreateSeries(b *testing.B) {
 	series := genSeries(b.N, 10, 0, 0)
-	h, _ := newTestHead(b, 10000, false)
+	h, _, _ := newTestHead(b, 10000, false)
 	defer func() {
 		require.NoError(b, h.Close())
 	}()
@@ -302,7 +302,7 @@ func TestHead_ReadWAL(t *testing.T) {
 				},
 			}
 
-			head, w := newTestHead(t, 1000, compress)
+			head, w, _ := newTestHead(t, 1000, compress)
 			defer func() {
 				require.NoError(t, head.Close())
 			}()
@@ -346,7 +346,7 @@ func TestHead_ReadWAL(t *testing.T) {
 }
 
 func TestHead_WALMultiRef(t *testing.T) {
-	head, w := newTestHead(t, 1000, false)
+	head, w, _ := newTestHead(t, 1000, false)
 
 	require.NoError(t, head.Init(0))
 
@@ -406,7 +406,7 @@ func TestHead_WALMultiRef(t *testing.T) {
 }
 
 func TestHead_ActiveAppenders(t *testing.T) {
-	head, _ := newTestHead(t, 1000, false)
+	head, _, _ := newTestHead(t, 1000, false)
 	defer head.Close()
 
 	require.NoError(t, head.Init(0))
@@ -439,14 +439,61 @@ func TestHead_ActiveAppenders(t *testing.T) {
 }
 
 func TestHead_UnknownWALRecord(t *testing.T) {
-	head, w := newTestHead(t, 1000, false)
+	head, w, _ := newTestHead(t, 1000, false)
 	w.Log([]byte{255, 42})
 	require.NoError(t, head.Init(0))
 	require.NoError(t, head.Close())
 }
 
+func Test_truncate_push_concurrently(t *testing.T) {
+	lset := labels.FromStrings("foo2", "bar")
+
+	h, _, r := newTestHead(t, 10, false)
+	require.NoError(t, h.Init(0))
+	require.NotNil(t, r)
+
+	defer func() {require.NoError(t, h.Close())}()
+	ref := storage.SeriesRef(0)
+	expected := 0
+	for i := 10; i < 15000; i += 3 {
+		var wg sync.WaitGroup
+		wg.Add(101)
+		app := h.Appender(context.Background())
+		ref, _ = app.Append(ref, lset, int64(i), -1)
+		app.Commit()
+
+		go func(time int64) {
+			h.truncateMemory(time)
+			wg.Done()
+		}(int64(i + 1))
+		time.Sleep(time.Duration(rand.Int()%10000) * time.Nanosecond)
+		for j := 0; j < 100; j++ {
+			go func(t int64, value int) {
+				time.Sleep(time.Duration((rand.Int() % int(t)) + 500) * time.Microsecond)
+				app := h.Appender(context.Background())
+				if r, _ := app.Append(ref, lset, t, float64(value)); r != 0 {
+					ref = r
+				}
+				app.Commit()
+				wg.Done()
+			}(int64(i + 2), j)
+		}
+
+		wg.Wait()
+		expected += 2
+
+		err := prom_testutil.GatherAndCompare(r, strings.NewReader(fmt.Sprintf(`
+        	            	# HELP prometheus_tsdb_head_samples_appended_total Total number of appended samples.
+        	            	# TYPE prometheus_tsdb_head_samples_appended_total counter
+        	            	prometheus_tsdb_head_samples_appended_total %d
+		`, expected)), "prometheus_tsdb_head_samples_appended_total")
+
+		require.NoError(t, err)
+	}
+}
+
 func TestHead_Truncate(t *testing.T) {
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -608,7 +655,7 @@ func TestHeadDeleteSeriesWithoutSamples(t *testing.T) {
 					{Ref: 50, T: 90, V: 1},
 				},
 			}
-			head, w := newTestHead(t, 1000, compress)
+			head, w, _ := newTestHead(t, 1000, compress)
 			defer func() {
 				require.NoError(t, head.Close())
 			}()
@@ -675,7 +722,7 @@ func TestHeadDeleteSimple(t *testing.T) {
 	for _, compress := range []bool{false, true} {
 		t.Run(fmt.Sprintf("compress=%t", compress), func(t *testing.T) {
 			for _, c := range cases {
-				head, w := newTestHead(t, 1000, compress)
+				head, w, _ := newTestHead(t, 1000, compress)
 
 				app := head.Appender(context.Background())
 				for _, smpl := range smplsAll {
@@ -755,7 +802,7 @@ func TestHeadDeleteSimple(t *testing.T) {
 }
 
 func TestDeleteUntilCurMax(t *testing.T) {
-	hb, _ := newTestHead(t, 1000000, false)
+	hb, _, _ := newTestHead(t, 1000000, false)
 	defer func() {
 		require.NoError(t, hb.Close())
 	}()
@@ -808,7 +855,7 @@ func TestDeletedSamplesAndSeriesStillInWALAfterCheckpoint(t *testing.T) {
 	numSamples := 10000
 
 	// Enough samples to cause a checkpoint.
-	hb, w := newTestHead(t, int64(numSamples)*10, false)
+	hb, w, _ := newTestHead(t, int64(numSamples)*10, false)
 
 	for i := 0; i < numSamples; i++ {
 		app := hb.Appender(context.Background())
@@ -897,7 +944,7 @@ func TestDelete_e2e(t *testing.T) {
 		seriesMap[labels.New(l...).String()] = []tsdbutil.Sample{}
 	}
 
-	hb, _ := newTestHead(t, 100000, false)
+	hb, _, _ := newTestHead(t, 100000, false)
 	defer func() {
 		require.NoError(t, hb.Close())
 	}()
@@ -1136,7 +1183,7 @@ func TestMemSeries_append(t *testing.T) {
 
 func TestGCChunkAccess(t *testing.T) {
 	// Put a chunk, select it. GC it and then access it.
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1190,7 +1237,7 @@ func TestGCChunkAccess(t *testing.T) {
 
 func TestGCSeriesAccess(t *testing.T) {
 	// Put a series, select it. GC it and then access it.
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1245,7 +1292,7 @@ func TestGCSeriesAccess(t *testing.T) {
 }
 
 func TestUncommittedSamplesNotLostOnTruncate(t *testing.T) {
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1275,7 +1322,7 @@ func TestUncommittedSamplesNotLostOnTruncate(t *testing.T) {
 }
 
 func TestRemoveSeriesAfterRollbackAndTruncate(t *testing.T) {
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1308,7 +1355,7 @@ func TestRemoveSeriesAfterRollbackAndTruncate(t *testing.T) {
 func TestHead_LogRollback(t *testing.T) {
 	for _, compress := range []bool{false, true} {
 		t.Run(fmt.Sprintf("compress=%t", compress), func(t *testing.T) {
-			h, w := newTestHead(t, 1000, compress)
+			h, w, _ := newTestHead(t, 1000, compress)
 			defer func() {
 				require.NoError(t, h.Close())
 			}()
@@ -1500,7 +1547,7 @@ func TestHeadReadWriterRepair(t *testing.T) {
 }
 
 func TestNewWalSegmentOnTruncate(t *testing.T) {
-	h, wlog := newTestHead(t, 1000, false)
+	h, wlog, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1530,7 +1577,7 @@ func TestNewWalSegmentOnTruncate(t *testing.T) {
 }
 
 func TestAddDuplicateLabelName(t *testing.T) {
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1613,7 +1660,7 @@ func TestMemSeriesIsolation(t *testing.T) {
 	}
 
 	// Test isolation without restart of Head.
-	hb, _ := newTestHead(t, 1000, false)
+	hb, _, _ := newTestHead(t, 1000, false)
 	i := addSamples(hb)
 	testIsolation(hb, i)
 
@@ -1675,7 +1722,7 @@ func TestMemSeriesIsolation(t *testing.T) {
 	require.NoError(t, hb.Close())
 
 	// Test isolation with restart of Head. This is to verify the num samples of chunks after m-map chunk replay.
-	hb, w := newTestHead(t, 1000, false)
+	hb, w, _ := newTestHead(t, 1000, false)
 	i = addSamples(hb)
 	require.NoError(t, hb.Close())
 
@@ -1728,7 +1775,7 @@ func TestIsolationRollback(t *testing.T) {
 	}
 
 	// Rollback after a failed append and test if the low watermark has progressed anyway.
-	hb, _ := newTestHead(t, 1000, false)
+	hb, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, hb.Close())
 	}()
@@ -1759,7 +1806,7 @@ func TestIsolationLowWatermarkMonotonous(t *testing.T) {
 		t.Skip("skipping test since tsdb isolation is disabled")
 	}
 
-	hb, _ := newTestHead(t, 1000, false)
+	hb, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, hb.Close())
 	}()
@@ -1796,7 +1843,7 @@ func TestIsolationAppendIDZeroIsNoop(t *testing.T) {
 		t.Skip("skipping test since tsdb isolation is disabled")
 	}
 
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1821,7 +1868,7 @@ func TestIsolationWithoutAdd(t *testing.T) {
 		t.Skip("skipping test since tsdb isolation is disabled")
 	}
 
-	hb, _ := newTestHead(t, 1000, false)
+	hb, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, hb.Close())
 	}()
@@ -1920,7 +1967,7 @@ func TestOutOfOrderSamplesMetric(t *testing.T) {
 }
 
 func testHeadSeriesChunkRace(t *testing.T) {
-	h, _ := newTestHead(t, 1000, false)
+	h, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -1955,7 +2002,7 @@ func testHeadSeriesChunkRace(t *testing.T) {
 }
 
 func TestHeadLabelNamesValuesWithMinMaxRange(t *testing.T) {
-	head, _ := newTestHead(t, 1000, false)
+	head, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, head.Close())
 	}()
@@ -2015,7 +2062,7 @@ func TestHeadLabelNamesValuesWithMinMaxRange(t *testing.T) {
 }
 
 func TestHeadLabelValuesWithMatchers(t *testing.T) {
-	head, _ := newTestHead(t, 1000, false)
+	head, _, _ := newTestHead(t, 1000, false)
 	t.Cleanup(func() { require.NoError(t, head.Close()) })
 
 	app := head.Appender(context.Background())
@@ -2074,7 +2121,7 @@ func TestHeadLabelValuesWithMatchers(t *testing.T) {
 }
 
 func TestHeadLabelNamesWithMatchers(t *testing.T) {
-	head, _ := newTestHead(t, 1000, false)
+	head, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, head.Close())
 	}()
@@ -2142,7 +2189,7 @@ func TestHeadLabelNamesWithMatchers(t *testing.T) {
 }
 
 func TestErrReuseAppender(t *testing.T) {
-	head, _ := newTestHead(t, 1000, false)
+	head, _, _ := newTestHead(t, 1000, false)
 	defer func() {
 		require.NoError(t, head.Close())
 	}()
@@ -2178,7 +2225,7 @@ func TestErrReuseAppender(t *testing.T) {
 
 func TestHeadMintAfterTruncation(t *testing.T) {
 	chunkRange := int64(2000)
-	head, _ := newTestHead(t, chunkRange, false)
+	head, _, _ := newTestHead(t, chunkRange, false)
 
 	app := head.Appender(context.Background())
 	_, err := app.Append(0, labels.Labels{{Name: "a", Value: "b"}}, 100, 100)
@@ -2212,7 +2259,7 @@ func TestHeadMintAfterTruncation(t *testing.T) {
 
 func TestHeadExemplars(t *testing.T) {
 	chunkRange := int64(2000)
-	head, _ := newTestHead(t, chunkRange, false)
+	head, _, _ := newTestHead(t, chunkRange, false)
 	app := head.Appender(context.Background())
 
 	l := labels.FromStrings("traceId", "123")
@@ -2234,7 +2281,7 @@ func TestHeadExemplars(t *testing.T) {
 
 func BenchmarkHeadLabelValuesWithMatchers(b *testing.B) {
 	chunkRange := int64(2000)
-	head, _ := newTestHead(b, chunkRange, false)
+	head, _, _ := newTestHead(b, chunkRange, false)
 	b.Cleanup(func() { require.NoError(b, head.Close()) })
 
 	app := head.Appender(context.Background())
@@ -2547,7 +2594,7 @@ func TestWaitForPendingReadersInTimeRange(t *testing.T) {
 }
 
 func TestChunkSnapshot(t *testing.T) {
-	head, _ := newTestHead(t, 120*4, false)
+	head, _, _ := newTestHead(t, 120*4, false)
 	defer func() {
 		head.opts.EnableMemorySnapshotOnShutdown = false
 		require.NoError(t, head.Close())
@@ -2789,7 +2836,7 @@ func TestChunkSnapshot(t *testing.T) {
 }
 
 func TestSnapshotError(t *testing.T) {
-	head, _ := newTestHead(t, 120*4, false)
+	head, _, _ := newTestHead(t, 120*4, false)
 	defer func() {
 		head.opts.EnableMemorySnapshotOnShutdown = false
 		require.NoError(t, head.Close())
