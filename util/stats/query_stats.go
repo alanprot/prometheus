@@ -185,8 +185,9 @@ func (p *TotalSamplesPerTime) MarshalJSON() ([]byte, error) {
 type QuerySamples struct {
 	// TotalSamplesPerTime represents the total number of samples scanned
 	// while evaluating a query.
-	TotalSamples        int
-	TotalSamplesPerTime TotalSamplesPerTime
+	TotalSamples             int
+	TotalSamplesPerTime      TotalSamplesPerTime
+	TotalSamplesPerTimeArray []int
 }
 
 type Stats struct {
@@ -199,7 +200,8 @@ func (qs *QuerySamples) IncrementSamples(t int64, samples int) {
 	if qs == nil {
 		return
 	}
-	qs.TotalSamplesPerTime[t] += samples
+	//qs.TotalSamplesPerTime[t] += samples
+	qs.TotalSamplesPerTimeArray = append(qs.TotalSamplesPerTimeArray, samples)
 	qs.TotalSamples += samples
 }
 
@@ -208,7 +210,7 @@ func NewQueryTimers() *QueryTimers {
 }
 
 func NewQuerySamples() *QuerySamples {
-	return &QuerySamples{TotalSamplesPerTime: TotalSamplesPerTime{}}
+	return &QuerySamples{}
 }
 
 func (qs *QueryTimers) GetSpanTimer(ctx context.Context, qt QueryTiming, observers ...prometheus.Observer) (*SpanTimer, context.Context) {
