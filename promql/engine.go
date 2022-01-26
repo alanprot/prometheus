@@ -637,14 +637,14 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 			}
 
 			if len(query.sampleStats.TotalSamplesPerTime) > 0 {
-				query.sampleStats.TotalSamplesPerTime = stats.TotalSamplesPerTime{}
-				query.sampleStats.TotalSamplesPerTime[start] = query.sampleStats.TotalSamples
+				//query.sampleStats.TotalSamplesPerTime = stats.TotalSamplesPerTime{}
+				//query.sampleStats.TotalSamplesPerTime[start] = query.sampleStats.TotalSamples
 			}
 			return vector, warnings, nil
 		case parser.ValueTypeScalar:
 			if len(query.sampleStats.TotalSamplesPerTime) > 0 {
-				query.sampleStats.TotalSamplesPerTime = stats.TotalSamplesPerTime{}
-				query.sampleStats.TotalSamplesPerTime[start] = query.sampleStats.TotalSamples
+				//query.sampleStats.TotalSamplesPerTime = stats.TotalSamplesPerTime{}
+				//query.sampleStats.TotalSamplesPerTime[start] = query.sampleStats.TotalSamples
 			}
 			return Scalar{V: mat[0].Points[0].V, T: start}, warnings, nil
 		case parser.ValueTypeMatrix:
@@ -1364,7 +1364,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 				enh.Ts = ts
 				// Make the function call.
 				outVec := call(inArgs, e.Args, enh)
-				ev.samplesStats.IncrementSamples(ts, len(points))
+				ev.samplesStats.IncrementSamples(ts, len(points), step)
 				enh.Out = outVec[:0]
 				if len(outVec) > 0 {
 					ss.Points = append(ss.Points, Point{V: outVec[0].Point.V, T: ts})
@@ -1516,9 +1516,11 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 				Points: getPointSlice(numSteps),
 			}
 
-			for ts := ev.startTimestamp; ts <= ev.endTimestamp; ts += ev.interval {
+			for ts, step := ev.startTimestamp, -1; ts <= ev.endTimestamp; ts += ev.interval {
+				step++
 				_, v, ok := ev.vectorSelectorSingle(it, e, ts)
 				if ok {
+					ev.samplesStats.IncrementSamples(ts, 1, step)
 					if ev.currentSamples < ev.maxSamples {
 						ss.Points = append(ss.Points, Point{V: v, T: ts})
 						ev.currentSamples++
@@ -1578,7 +1580,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 
 		res, ws := newEv.eval(e.Expr)
 		ev.currentSamples = newEv.currentSamples
-		ev.samplesStats.IncrementSamples(ev.endTimestamp, newEv.samplesStats.TotalSamples)
+		ev.samplesStats.IncrementSamples(ev.endTimestamp, newEv.samplesStats.TotalSamples, 0)
 		return res, ws
 	case *parser.StepInvariantExpr:
 		switch ce := e.Expr.(type) {
@@ -1600,8 +1602,9 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 		}
 		res, ws := newEv.eval(e.Expr)
 		ev.currentSamples = newEv.currentSamples
-		for ts := ev.startTimestamp; ts <= ev.endTimestamp; ts = ts + ev.interval {
-			ev.samplesStats.IncrementSamples(ts, newEv.samplesStats.TotalSamples)
+		for ts, step := ev.startTimestamp, -1; ts <= ev.endTimestamp; ts = ts + ev.interval {
+			step++
+			ev.samplesStats.IncrementSamples(ts, newEv.samplesStats.TotalSamples, step)
 		}
 		switch e.Expr.(type) {
 		case *parser.MatrixSelector, *parser.SubqueryExpr:
@@ -1657,7 +1660,7 @@ func (ev *evaluator) vectorSelector(node *parser.VectorSelector, ts int64) (Vect
 			})
 
 			ev.currentSamples++
-			ev.samplesStats.IncrementSamples(t, 1)
+			ev.samplesStats.IncrementSamples(t, 1, 0)
 			if ev.currentSamples > ev.maxSamples {
 				ev.error(ErrTooManySamples(env))
 			}
@@ -1693,7 +1696,6 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 	if value.IsStaleNaN(v) {
 		return 0, 0, false
 	}
-	ev.samplesStats.IncrementSamples(ts, 1)
 	return t, v, true
 }
 
@@ -1740,7 +1742,7 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, storag
 		}
 
 		ss.Points = ev.matrixIterSlice(it, mint, maxt, getPointSlice(16))
-		ev.samplesStats.IncrementSamples(ev.startTimestamp, len(ss.Points))
+		ev.samplesStats.IncrementSamples(ev.startTimestamp, len(ss.Points), 0)
 
 		if len(ss.Points) > 0 {
 			matrix = append(matrix, ss)

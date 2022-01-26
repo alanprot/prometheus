@@ -782,7 +782,17 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 1, // 1 sample / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 1,
+					stats.SampleStats{T: 21000, C: 1},
+				},
+			},
+		},
+		{
+			Query: "max(metricWith1SampleEvery10Seconds)",
+			Start: time.Unix(21, 0),
+			QuerySamples: &stats.QuerySamples{
+				TotalSamples: 1, // 1 sample / 10 seconds
+				TotalSamplesPerTime: stats.TotalSamplesPerTime{
+					stats.SampleStats{T: 21000, C: 1},
 				},
 			},
 		},
@@ -792,7 +802,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 1, // 1 sample / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					22000: 1, // aligned to the step time, not the sample time
+					stats.SampleStats{T: 22000, C: 1}, // aligned to the step time, not the sample time
 				},
 			},
 		},
@@ -802,7 +812,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 1, // 1 sample / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 1,
+					stats.SampleStats{T: 21000, C: 1},
 				},
 			},
 		},
@@ -812,7 +822,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 1, // 1 sample / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 1,
+					stats.SampleStats{T: 21000, C: 1},
 				},
 			},
 		},
@@ -822,7 +832,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 1, // 1 sample / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 1,
+					stats.SampleStats{T: 21000, C: 1},
 				},
 			},
 		},
@@ -832,7 +842,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 1, // 1 sample / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 1,
+					stats.SampleStats{T: 21000, C: 1},
 				},
 			},
 		},
@@ -842,7 +852,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 2, // (1 sample / 10 seconds) * 20s
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 2,
+					stats.SampleStats{T: 21000, C: 2},
 				},
 			},
 		},
@@ -852,7 +862,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 3, // 3 samples / 10 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					21000: 3,
+					stats.SampleStats{T: 21000, C: 3},
 				},
 			},
 		},
@@ -862,7 +872,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 6, // 1 sample / 10 seconds * 60 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 6,
+					stats.SampleStats{T: 201000, C: 6},
 				},
 			},
 		},
@@ -874,7 +884,7 @@ load 10s
 				// as if we run a query on 00 looking back 60 seconds we will return 7 samples
 				// see next test
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 24,
+					stats.SampleStats{T: 201000, C: 24},
 				},
 			},
 		},
@@ -885,7 +895,7 @@ load 10s
 				TotalSamples: 26, // (1 sample / 10 seconds * 60 seconds) + 2 as
 				// max_over_time(metricWith1SampleEvery10Seconds[60s]) @ 190 and 200 will return 7 samples
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 26,
+					stats.SampleStats{T: 201000, C: 26},
 				},
 			},
 		},
@@ -895,7 +905,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 4, // @ modifier force the evaluation to at 30 seconds - So it brings 4 datapoints (0, 10, 20, 30 seconds) * 1 series
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 4,
+					stats.SampleStats{T: 201000, C: 4},
 				},
 			},
 		},
@@ -905,7 +915,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 12, // @ modifier force the evaluation to at 30 seconds - So it brings 4 datapoints (0, 10, 20, 30 seconds) * 3 series
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
+					stats.SampleStats{T: 201000, C: 12},
 				},
 			},
 		},
@@ -915,7 +925,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 12, // @ modifier force the evaluation to at 30 seconds - So it brings 4 datapoints (0, 10, 20, 30 seconds) * 3 series
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
+					stats.SampleStats{T: 201000, C: 12},
 				},
 			},
 		},
@@ -925,7 +935,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 6, // 1 sample / 10 seconds * 60 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 6,
+					stats.SampleStats{T: 201000, C: 6},
 				},
 			},
 		},
@@ -935,7 +945,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 18, // 3 sample / 10 seconds * 60 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 18,
+					stats.SampleStats{T: 201000, C: 18},
 				},
 			},
 		},
@@ -945,7 +955,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 6, // 1 sample / 10 seconds * 60 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 6,
+					stats.SampleStats{T: 201000, C: 6},
 				},
 			},
 		},
@@ -955,7 +965,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 18, // 3 sample / 10 seconds * 60 seconds
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 18,
+					stats.SampleStats{T: 201000, C: 18},
 				},
 			},
 		},
@@ -965,7 +975,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 12, // 1 sample per query * 12 queries (60/5)
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
+					stats.SampleStats{T: 201000, C: 12},
 				},
 			},
 		},
@@ -975,7 +985,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 12, // 1 sample per query * 12 queries (60/5)
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
+					stats.SampleStats{T: 201000, C: 12},
 				},
 			},
 		},
@@ -985,7 +995,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 36, // 3 sample per query * 12 queries (60/5)
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 36,
+					stats.SampleStats{T: 201000, C: 36},
 				},
 			},
 		},
@@ -995,7 +1005,7 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 72, // 2 * (3 sample per query * 12 queries (60/5))
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 72,
+					stats.SampleStats{T: 201000, C: 72},
 				},
 			},
 		},
@@ -1007,10 +1017,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 4, // 1 sample per query * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 1,
-					206000: 1,
-					211000: 1,
-					216000: 1,
+					stats.SampleStats{T: 201000, C: 1},
+					stats.SampleStats{T: 206000, C: 1},
+					stats.SampleStats{T: 211000, C: 1},
+					stats.SampleStats{T: 216000, C: 1},
 				},
 			},
 		},
@@ -1022,10 +1032,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 4, // 1 sample per query * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					204000: 1, // aligned to the step time, not the sample time
-					209000: 1,
-					214000: 1,
-					219000: 1,
+					stats.SampleStats{T: 204000, C: 1}, // aligned to the step time, not the sample time
+					stats.SampleStats{T: 209000, C: 1},
+					stats.SampleStats{T: 214000, C: 1},
+					stats.SampleStats{T: 219000, C: 1},
 				},
 			},
 		},
@@ -1037,8 +1047,8 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 2, // 1 sample per query * 2 steps with data
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					991000:  1,
-					1001000: 1,
+					stats.SampleStats{T: 991000, C: 1},
+					stats.SampleStats{T: 1001000, C: 1},
 				},
 			},
 		},
@@ -1050,10 +1060,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 4, // 1 sample per query * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 1,
-					206000: 1,
-					211000: 1,
-					216000: 1,
+					stats.SampleStats{T: 201000, C: 1},
+					stats.SampleStats{T: 206000, C: 1},
+					stats.SampleStats{T: 211000, C: 1},
+					stats.SampleStats{T: 216000, C: 1},
 				},
 			},
 		},
@@ -1065,10 +1075,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 48, // @ modifier force the evaluation timestamp at 30 seconds - So it brings 4 datapoints (0, 10, 20, 30 seconds) * 3 series * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
-					206000: 12,
-					211000: 12,
-					216000: 12,
+					stats.SampleStats{T: 201000, C: 12},
+					stats.SampleStats{T: 206000, C: 12},
+					stats.SampleStats{T: 211000, C: 12},
+					stats.SampleStats{T: 216000, C: 12},
 				},
 			},
 		},
@@ -1080,10 +1090,25 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 12, // 3 sample per query * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 3,
-					206000: 3,
-					211000: 3,
-					216000: 3,
+					stats.SampleStats{T: 201000, C: 3},
+					stats.SampleStats{T: 206000, C: 3},
+					stats.SampleStats{T: 211000, C: 3},
+					stats.SampleStats{T: 216000, C: 3},
+				},
+			},
+		},
+		{
+			Query:    "max(metricWith1SampleEvery10Seconds)",
+			Start:    time.Unix(201, 0),
+			End:      time.Unix(220, 0),
+			Interval: 5 * time.Second,
+			QuerySamples: &stats.QuerySamples{
+				TotalSamples: 4, // (1 sample / 10 seconds) * 4 steps
+				TotalSamplesPerTime: stats.TotalSamplesPerTime{
+					stats.SampleStats{T: 201000, C: 1},
+					stats.SampleStats{T: 206000, C: 1},
+					stats.SampleStats{T: 211000, C: 1},
+					stats.SampleStats{T: 216000, C: 1},
 				},
 			},
 		},
@@ -1095,10 +1120,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 72, // (3 sample / 10 seconds * 60 seconds) * 4 steps = 72
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 18,
-					206000: 18,
-					211000: 18,
-					216000: 18,
+					stats.SampleStats{T: 201000, C: 18},
+					stats.SampleStats{T: 206000, C: 18},
+					stats.SampleStats{T: 211000, C: 18},
+					stats.SampleStats{T: 216000, C: 18},
 				},
 			},
 		},
@@ -1110,10 +1135,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 144, // 3 sample per query * 12 queries (60/5) * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 36,
-					206000: 36,
-					211000: 36,
-					216000: 36,
+					stats.SampleStats{T: 201000, C: 36},
+					stats.SampleStats{T: 206000, C: 36},
+					stats.SampleStats{T: 211000, C: 36},
+					stats.SampleStats{T: 216000, C: 36},
 				},
 			},
 		},
@@ -1125,10 +1150,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 48, // 1 sample per query * 12 queries (60/5) * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
-					206000: 12,
-					211000: 12,
-					216000: 12,
+					stats.SampleStats{T: 201000, C: 12},
+					stats.SampleStats{T: 206000, C: 12},
+					stats.SampleStats{T: 211000, C: 12},
+					stats.SampleStats{T: 216000, C: 12},
 				},
 			},
 		},
@@ -1140,10 +1165,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 48, // 1 sample per query * 12 queries (60/5) * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 12,
-					206000: 12,
-					211000: 12,
-					216000: 12,
+					stats.SampleStats{T: 201000, C: 12},
+					stats.SampleStats{T: 206000, C: 12},
+					stats.SampleStats{T: 211000, C: 12},
+					stats.SampleStats{T: 216000, C: 12},
 				},
 			},
 		},
@@ -1155,10 +1180,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 288, // 2 * (3 sample per query * 12 queries (60/5) * 4 steps)
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 72,
-					206000: 72,
-					211000: 72,
-					216000: 72,
+					stats.SampleStats{T: 201000, C: 72},
+					stats.SampleStats{T: 206000, C: 72},
+					stats.SampleStats{T: 211000, C: 72},
+					stats.SampleStats{T: 216000, C: 72},
 				},
 			},
 		},
@@ -1170,10 +1195,10 @@ load 10s
 			QuerySamples: &stats.QuerySamples{
 				TotalSamples: 192, // (1 sample per query * 12 queries (60/5) + 3 sample per query * 12 queries (60/5)) * 4 steps
 				TotalSamplesPerTime: stats.TotalSamplesPerTime{
-					201000: 48,
-					206000: 48,
-					211000: 48,
-					216000: 48,
+					stats.SampleStats{T: 201000, C: 48},
+					stats.SampleStats{T: 206000, C: 48},
+					stats.SampleStats{T: 211000, C: 48},
+					stats.SampleStats{T: 216000, C: 48},
 				},
 			},
 		},

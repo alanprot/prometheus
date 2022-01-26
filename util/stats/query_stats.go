@@ -170,13 +170,18 @@ type QueryTimers struct {
 	*TimerGroup
 }
 
-type TotalSamplesPerTime map[int64]int
+type SampleStats struct {
+	T int64
+	C int
+}
+
+type TotalSamplesPerTime []SampleStats
 
 func (p *TotalSamplesPerTime) MarshalJSON() ([]byte, error) {
 	toMs := map[int64]int{}
 
-	for k, v := range *p {
-		toMs[k/1000] = v
+	for _, s := range *p {
+		toMs[s.T/1000] = s.C
 	}
 
 	return json.Marshal(toMs)
@@ -195,11 +200,16 @@ type Stats struct {
 }
 
 // IncrementSamples increments the total samples count.
-func (qs *QuerySamples) IncrementSamples(t int64, samples int) {
+func (qs *QuerySamples) IncrementSamples(t int64, samples int, step int) {
 	if qs == nil {
 		return
 	}
-	qs.TotalSamplesPerTime[t] += samples
+
+	if len(qs.TotalSamplesPerTime) < step + 1 {
+		qs.TotalSamplesPerTime = append(qs.TotalSamplesPerTime, SampleStats{ T: t })
+	}
+
+	qs.TotalSamplesPerTime[step].C += samples
 	qs.TotalSamples += samples
 }
 
