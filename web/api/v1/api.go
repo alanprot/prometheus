@@ -168,6 +168,7 @@ type QueryEngine interface {
 	SetQueryLogger(l promql.QueryLogger)
 	NewInstantQuery(q storage.Queryable, opts *promql.QueryOpts, qs string, ts time.Time) (promql.Query, error)
 	NewRangeQuery(q storage.Queryable, opts *promql.QueryOpts, qs string, start, end time.Time, interval time.Duration) (promql.Query, error)
+	SetReportStats(func(ctx context.Context, qs stats.QueryStats, err error))
 }
 
 // API can register a set of endpoints in a router and handle
