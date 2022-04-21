@@ -239,7 +239,9 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		return 0, storage.ErrOutOfBounds
 	}
 
-	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
+	s := a.head.series.getByIDWithLockedCallback(chunks.HeadSeriesRef(ref), func(series *memSeries) {
+		series.pendingCommit.Store(true)
+	})
 	if s == nil {
 		// Ensure no empty labels have gotten through.
 		lset = lset.WithoutEmpty()
@@ -273,7 +275,6 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		}
 		return 0, err
 	}
-	s.pendingCommit = true
 	s.Unlock()
 
 	if t < a.mint {
@@ -450,7 +451,7 @@ func (a *headAppender) Commit() (err error) {
 		series.Lock()
 		ok, chunkCreated := series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
-		series.pendingCommit = false
+		series.pendingCommit.Store(false)
 		series.Unlock()
 
 		if !ok {
@@ -600,7 +601,7 @@ func (a *headAppender) Rollback() (err error) {
 		series = a.sampleSeries[i]
 		series.Lock()
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
-		series.pendingCommit = false
+		series.pendingCommit.Store(false)
 		series.Unlock()
 	}
 	a.head.putAppendBuffer(a.samples)

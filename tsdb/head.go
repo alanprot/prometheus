@@ -1354,7 +1354,7 @@ func (s *stripeSeries) gc(mint int64) (map[storage.SeriesRef]struct{}, int, int6
 				series.Lock()
 				rmChunks += series.truncateChunksBefore(mint)
 
-				if len(series.mmappedChunks) > 0 || series.headChunk != nil || series.pendingCommit {
+				if len(series.mmappedChunks) > 0 || series.headChunk != nil || series.pendingCommit.Load() {
 					seriesMint := series.minTime()
 					if seriesMint < actualMint {
 						actualMint = seriesMint
@@ -1405,6 +1405,19 @@ func (s *stripeSeries) getByID(id chunks.HeadSeriesRef) *memSeries {
 
 	s.locks[i].RLock()
 	series := s.series[i][id]
+	s.locks[i].RUnlock()
+
+	return series
+}
+
+func (s *stripeSeries) getByIDWithLockedCallback(id chunks.HeadSeriesRef, c func(series *memSeries)) *memSeries {
+	i := uint64(id) & uint64(s.size-1)
+
+	s.locks[i].RLock()
+	series := s.series[i][id]
+	if series != nil {
+		c(series)
+	}
 	s.locks[i].RUnlock()
 
 	return series
@@ -1501,7 +1514,7 @@ type memSeries struct {
 	// Even the most compact encoding of a sample takes 2 bits, so the last byte is not contended.
 	sampleBuf [4]sample
 
-	pendingCommit bool // Whether there are samples waiting to be committed to this series.
+	pendingCommit atomic.Bool // Whether there are samples waiting to be committed to this series.
 
 	// Current appender for the head chunk. Set when a new head chunk is cut.
 	// It is nil only if headChunk is nil. E.g. if there was an appender that created a new series, but rolled back the commit
