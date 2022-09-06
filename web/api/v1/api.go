@@ -166,8 +166,8 @@ type TSDBAdminStats interface {
 // QueryEngine defines the interface for the *promql.Engine, so it can be replaced, wrapped or mocked.
 type QueryEngine interface {
 	SetQueryLogger(l promql.QueryLogger)
-	NewInstantQuery(q storage.Queryable, opts *promql.QueryOpts, qs string, ts time.Time) (promql.Query, error)
-	NewRangeQuery(q storage.Queryable, opts *promql.QueryOpts, qs string, start, end time.Time, interval time.Duration) (promql.Query, error)
+	NewInstantQuery(q storage.Queryable, opts promql.QueryOpts, qs string, ts time.Time) (promql.Query, error)
+	NewRangeQuery(q storage.Queryable, opts promql.QueryOpts, qs string, start, end time.Time, interval time.Duration) (promql.Query, error)
 }
 
 // API can register a set of endpoints in a router and handle
@@ -199,6 +199,8 @@ type API struct {
 
 	remoteWriteHandler http.Handler
 	remoteReadHandler  http.Handler
+
+	extractQueryOpts func(r *http.Request) promql.QueryOpts
 }
 
 func init() {
@@ -233,6 +235,7 @@ func NewAPI(
 	gatherer prometheus.Gatherer,
 	registerer prometheus.Registerer,
 	statsRenderer StatsRenderer,
+	extractQueryOpts func(r *http.Request) promql.QueryOpts,
 ) *API {
 	a := &API{
 		QueryEngine:       qe,
@@ -260,10 +263,15 @@ func NewAPI(
 		statsRenderer:    defaultStatsRenderer,
 
 		remoteReadHandler: remote.NewReadHandler(logger, registerer, q, configFunc, remoteReadSampleLimit, remoteReadConcurrencyLimit, remoteReadMaxBytesInFrame),
+		extractQueryOpts:  defaultExtractQueryOpts,
 	}
 
 	if statsRenderer != nil {
 		a.statsRenderer = statsRenderer
+	}
+
+	if extractQueryOpts != nil {
+		a.extractQueryOpts = extractQueryOpts
 	}
 
 	if ap != nil {
@@ -395,7 +403,11 @@ func (api *API) query(r *http.Request) (result apiFuncResult) {
 		defer cancel()
 	}
 
-	opts := extractQueryOpts(r)
+	oe := api.extractQueryOpts
+	if oe == nil {
+		oe = defaultExtractQueryOpts
+	}
+	opts := api.extractQueryOpts(r)
 	qry, err := api.QueryEngine.NewInstantQuery(api.Queryable, opts, r.FormValue("query"), ts)
 	if err != nil {
 		return invalidParamError(err, "query")
@@ -440,8 +452,8 @@ func (api *API) formatQuery(r *http.Request) (result apiFuncResult) {
 	return apiFuncResult{expr.Pretty(0), nil, nil, nil}
 }
 
-func extractQueryOpts(r *http.Request) *promql.QueryOpts {
-	return &promql.QueryOpts{
+func defaultExtractQueryOpts(r *http.Request) promql.QueryOpts {
+	return &promql.QueryOptsBuiltin{
 		EnablePerStepStats: r.FormValue("stats") == "all",
 	}
 }
@@ -487,7 +499,12 @@ func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
 		defer cancel()
 	}
 
-	opts := extractQueryOpts(r)
+	oe := api.extractQueryOpts
+	if oe == nil {
+		oe = defaultExtractQueryOpts
+	}
+
+	opts := oe(r)
 	qry, err := api.QueryEngine.NewRangeQuery(api.Queryable, opts, r.FormValue("query"), start, end, step)
 	if err != nil {
 		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
@@ -1664,11 +1681,12 @@ func marshalPointJSONIsEmpty(ptr unsafe.Pointer) bool {
 }
 
 // marshalExemplarJSON writes.
-// {
-//    labels: <labels>,
-//    value: "<string>",
-//    timestamp: <float>
-// }
+//
+//	{
+//	   labels: <labels>,
+//	   value: "<string>",
+//	   timestamp: <float>
+//	}
 func marshalExemplarJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 	p := *((*exemplar.Exemplar)(ptr))
 	stream.WriteObjectStart()

@@ -125,11 +125,19 @@ type Query interface {
 	String() string
 }
 
-type QueryOpts struct {
+type QueryOpts interface {
+	Builtin() *QueryOptsBuiltin
+}
+
+type QueryOptsBuiltin struct {
 	// Enables recording per-step statistics if the engine has it enabled as well. Disabled by default.
 	EnablePerStepStats bool
 	// Lookback delta duration for this query.
 	LookbackDelta time.Duration
+}
+
+func (o *QueryOptsBuiltin) Builtin() *QueryOptsBuiltin {
+	return o
 }
 
 // query implements the Query interface.
@@ -396,7 +404,7 @@ func (ng *Engine) SetQueryLogger(l QueryLogger) {
 }
 
 // NewInstantQuery returns an evaluation query for the given expression at the given time.
-func (ng *Engine) NewInstantQuery(q storage.Queryable, opts *QueryOpts, qs string, ts time.Time) (Query, error) {
+func (ng *Engine) NewInstantQuery(q storage.Queryable, opts QueryOpts, qs string, ts time.Time) (Query, error) {
 	expr, err := parser.ParseExpr(qs)
 	if err != nil {
 		return nil, err
@@ -412,7 +420,7 @@ func (ng *Engine) NewInstantQuery(q storage.Queryable, opts *QueryOpts, qs strin
 
 // NewRangeQuery returns an evaluation query for the given time range and with
 // the resolution set by the interval.
-func (ng *Engine) NewRangeQuery(q storage.Queryable, opts *QueryOpts, qs string, start, end time.Time, interval time.Duration) (Query, error) {
+func (ng *Engine) NewRangeQuery(q storage.Queryable, opts QueryOpts, qs string, start, end time.Time, interval time.Duration) (Query, error) {
 	expr, err := parser.ParseExpr(qs)
 	if err != nil {
 		return nil, err
@@ -429,17 +437,18 @@ func (ng *Engine) NewRangeQuery(q storage.Queryable, opts *QueryOpts, qs string,
 	return qry, nil
 }
 
-func (ng *Engine) newQuery(q storage.Queryable, opts *QueryOpts, expr parser.Expr, start, end time.Time, interval time.Duration) (*query, error) {
+func (ng *Engine) newQuery(q storage.Queryable, opts QueryOpts, expr parser.Expr, start, end time.Time, interval time.Duration) (*query, error) {
 	if err := ng.validateOpts(expr); err != nil {
 		return nil, err
 	}
 
-	// Default to empty QueryOpts if not provided.
-	if opts == nil {
-		opts = &QueryOpts{}
+	o := opts.Builtin()
+	// Default to empty QueryOptsBuiltin if not provided.
+	if o == nil {
+		o = &QueryOptsBuiltin{}
 	}
 
-	lookbackDelta := opts.LookbackDelta
+	lookbackDelta := o.LookbackDelta
 	if lookbackDelta <= 0 {
 		lookbackDelta = ng.lookbackDelta
 	}
@@ -455,7 +464,7 @@ func (ng *Engine) newQuery(q storage.Queryable, opts *QueryOpts, expr parser.Exp
 		stmt:        es,
 		ng:          ng,
 		stats:       stats.NewQueryTimers(),
-		sampleStats: stats.NewQuerySamples(ng.enablePerStepStats && opts.EnablePerStepStats),
+		sampleStats: stats.NewQuerySamples(ng.enablePerStepStats && o.EnablePerStepStats),
 		queryable:   q,
 	}
 	return qry, nil

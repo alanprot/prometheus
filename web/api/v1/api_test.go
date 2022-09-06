@@ -532,6 +532,58 @@ func (testStats) Builtin() (_ stats.BuiltinStats) {
 	return
 }
 
+type testExtensibleOpts struct {
+	promql.QueryOpts
+	shardingId string
+}
+
+type wrapEngine struct {
+	QueryEngine
+	opts *testExtensibleOpts
+}
+
+func (e *wrapEngine) NewInstantQuery(q storage.Queryable, opts promql.QueryOpts, qs string, ts time.Time) (promql.Query, error) {
+	e.opts = opts.(*testExtensibleOpts)
+	return e.QueryEngine.NewInstantQuery(q, opts, qs, ts)
+}
+
+func TestExtensibleOptions(t *testing.T) {
+	sharding := "shard-10"
+	suite, err := promql.NewTest(t, ``)
+	require.NoError(t, err)
+	e := &wrapEngine{QueryEngine: suite.QueryEngine()}
+
+	api := &API{
+		Queryable:   suite.Storage(),
+		QueryEngine: e,
+		extractQueryOpts: func(r *http.Request) promql.QueryOpts {
+			return &testExtensibleOpts{defaultExtractQueryOpts(r), r.FormValue("sharding")}
+		},
+		now: func() time.Time {
+			return time.Unix(123, 0)
+		},
+	}
+
+	u, err := url.Parse("http://example.com")
+	require.NoError(t, err)
+	q := u.Query()
+	q.Add("stats", "all")
+	q.Add("query", "up")
+	q.Add("start", "0")
+	q.Add("end", "100")
+	q.Add("step", "10")
+	q.Add("sharding", sharding)
+	u.RawQuery = q.Encode()
+
+	r, err := http.NewRequest("GET", u.String(), nil)
+	require.NoError(t, err)
+
+	res := api.query(r.WithContext(context.Background()))
+	assertAPIError(t, res.err, "")
+	require.Equal(t, e.opts.shardingId, sharding)
+	require.Equal(t, e.opts.Build().EnablePerStepStats, true)
+}
+
 func TestStats(t *testing.T) {
 	suite, err := promql.NewTest(t, ``)
 	require.NoError(t, err)
