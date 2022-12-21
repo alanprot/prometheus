@@ -110,6 +110,33 @@ type symbolCacheEntry struct {
 	lastValueIndex uint32
 }
 
+type SymbolsCodec interface {
+	Encode(sym string) []byte
+	Decode(b []byte) string
+}
+
+type defaultSymbolsCodec struct{}
+
+func (defaultSymbolsCodec) Encode(sym string) []byte {
+	return []byte(sym)
+}
+
+func (defaultSymbolsCodec) Decode(b []byte) string {
+	return yoloString(b)
+}
+
+var dSymbolsCodec defaultSymbolsCodec
+
+type WriterOps struct {
+	Fn           string
+	SymbolsCodec SymbolsCodec
+}
+
+type ReadOps struct {
+	Fn           string
+	SymbolsCodec SymbolsCodec
+}
+
 // Writer implements the IndexWriter interface for the standard
 // serialization format.
 type Writer struct {
@@ -148,6 +175,8 @@ type Writer struct {
 	crc32 hash.Hash
 
 	Version int
+
+	symbolsCodec SymbolsCodec
 }
 
 // TOC represents index Table Of Content that states where each section of index starts.
@@ -188,9 +217,8 @@ func NewTOCFromByteSlice(bs ByteSlice) (*TOC, error) {
 	}, nil
 }
 
-// NewWriter returns a new Writer to the given filename. It serializes data in format version 2.
-func NewWriter(ctx context.Context, fn string) (*Writer, error) {
-	dir := filepath.Dir(fn)
+func NewWriterWithOps(ctx context.Context, ops WriterOps) (*Writer, error) {
+	dir := filepath.Dir(ops.Fn)
 
 	df, err := fileutil.OpenDir(dir)
 	if err != nil {
@@ -198,27 +226,31 @@ func NewWriter(ctx context.Context, fn string) (*Writer, error) {
 	}
 	defer df.Close() // Close for platform windows.
 
-	if err := os.RemoveAll(fn); err != nil {
+	if err := os.RemoveAll(ops.Fn); err != nil {
 		return nil, errors.Wrap(err, "remove any existing index at path")
 	}
 
 	// Main index file we are building.
-	f, err := NewFileWriter(fn)
+	f, err := NewFileWriter(ops.Fn)
 	if err != nil {
 		return nil, err
 	}
 	// Temporary file for postings.
-	fP, err := NewFileWriter(fn + "_tmp_p")
+	fP, err := NewFileWriter(ops.Fn + "_tmp_p")
 	if err != nil {
 		return nil, err
 	}
 	// Temporary file for posting offset table.
-	fPO, err := NewFileWriter(fn + "_tmp_po")
+	fPO, err := NewFileWriter(ops.Fn + "_tmp_po")
 	if err != nil {
 		return nil, err
 	}
 	if err := df.Sync(); err != nil {
 		return nil, errors.Wrap(err, "sync dir")
+	}
+
+	if ops.SymbolsCodec == nil {
+		ops.SymbolsCodec = dSymbolsCodec
 	}
 
 	iw := &Writer{
@@ -232,14 +264,20 @@ func NewWriter(ctx context.Context, fn string) (*Writer, error) {
 		buf1: encoding.Encbuf{B: make([]byte, 0, 1<<22)},
 		buf2: encoding.Encbuf{B: make([]byte, 0, 1<<22)},
 
-		symbolCache: make(map[string]symbolCacheEntry, 1<<8),
-		labelNames:  make(map[string]uint64, 1<<8),
-		crc32:       newCRC32(),
+		symbolCache:  make(map[string]symbolCacheEntry, 1<<8),
+		labelNames:   make(map[string]uint64, 1<<8),
+		crc32:        newCRC32(),
+		symbolsCodec: ops.SymbolsCodec,
 	}
 	if err := iw.writeMeta(); err != nil {
 		return nil, err
 	}
 	return iw, nil
+}
+
+// NewWriter returns a new Writer to the given filename. It serializes data in format version 2.
+func NewWriter(ctx context.Context, fn string) (*Writer, error) {
+	return NewWriterWithOps(ctx, WriterOps{Fn: fn})
 }
 
 func (w *Writer) write(bufs ...[]byte) error {
@@ -518,7 +556,7 @@ func (w *Writer) AddSymbol(sym string) error {
 	w.lastSymbol = sym
 	w.numSymbols++
 	w.buf1.Reset()
-	w.buf1.PutUvarintStr(sym)
+	w.buf1.PutUvarintBytes(w.symbolsCodec.Encode(sym))
 	return w.write(w.buf1.Get())
 }
 
@@ -560,7 +598,7 @@ func (w *Writer) finishSymbols() error {
 	}
 
 	// Load in the symbol table efficiently for the rest of the index writing.
-	w.symbols, err = NewSymbols(realByteSlice(w.symbolFile.Bytes()), FormatV2, int(w.toc.Symbols))
+	w.symbols, err = NewSymbols(realByteSlice(w.symbolFile.Bytes()), w.symbolsCodec, FormatV2, int(w.toc.Symbols))
 	if err != nil {
 		return errors.Wrap(err, "read symbols")
 	}
@@ -1108,16 +1146,15 @@ func (b realByteSlice) Sub(start, end int) ByteSlice {
 // NewReader returns a new index reader on the given byte slice. It automatically
 // handles different format versions.
 func NewReader(b ByteSlice) (*Reader, error) {
-	return newReader(b, io.NopCloser(nil))
+	return newReader(b, nil, io.NopCloser(nil))
 }
 
-// NewFileReader returns a new index reader against the given index file.
-func NewFileReader(path string) (*Reader, error) {
-	f, err := fileutil.OpenMmapFile(path)
+func NewFileReaderWithOps(ops ReadOps) (*Reader, error) {
+	f, err := fileutil.OpenMmapFile(ops.Fn)
 	if err != nil {
 		return nil, err
 	}
-	r, err := newReader(realByteSlice(f.Bytes()), f)
+	r, err := newReader(realByteSlice(f.Bytes()), ops.SymbolsCodec, f)
 	if err != nil {
 		return nil, tsdb_errors.NewMulti(
 			err,
@@ -1128,7 +1165,12 @@ func NewFileReader(path string) (*Reader, error) {
 	return r, nil
 }
 
-func newReader(b ByteSlice, c io.Closer) (*Reader, error) {
+// NewFileReader returns a new index reader against the given index file.
+func NewFileReader(path string) (*Reader, error) {
+	return NewFileReaderWithOps(ReadOps{Fn: path})
+}
+
+func newReader(b ByteSlice, codec SymbolsCodec, c io.Closer) (*Reader, error) {
 	r := &Reader{
 		b:        b,
 		c:        c,
@@ -1154,7 +1196,7 @@ func newReader(b ByteSlice, c io.Closer) (*Reader, error) {
 		return nil, errors.Wrap(err, "read TOC")
 	}
 
-	r.symbols, err = NewSymbols(r.b, r.version, int(r.toc.Symbols))
+	r.symbols, err = NewSymbols(r.b, codec, r.version, int(r.toc.Symbols))
 	if err != nil {
 		return nil, errors.Wrap(err, "read symbols")
 	}
@@ -1276,15 +1318,22 @@ type Symbols struct {
 
 	offsets []int
 	seen    int
+
+	codec SymbolsCodec
 }
 
 const symbolFactor = 32
 
 // NewSymbols returns a Symbols object for symbol lookups.
-func NewSymbols(bs ByteSlice, version, off int) (*Symbols, error) {
+func NewSymbols(bs ByteSlice, codec SymbolsCodec, version, off int) (*Symbols, error) {
+	if codec == nil {
+		codec = dSymbolsCodec
+	}
+
 	s := &Symbols{
 		bs:      bs,
 		version: version,
+		codec:   codec,
 		off:     off,
 	}
 	d := encoding.NewDecbufAt(bs, off, castagnoliTable)
@@ -1324,7 +1373,7 @@ func (s Symbols) Lookup(o uint32) (string, error) {
 	} else {
 		d.Skip(int(o))
 	}
-	sym := d.UvarintStr()
+	sym := s.codec.Decode(d.UvarintBytes())
 	if d.Err() != nil {
 		return "", d.Err()
 	}
@@ -1342,7 +1391,8 @@ func (s Symbols) ReverseLookup(sym string) (uint32, error) {
 			B: s.bs.Range(0, s.bs.Len()),
 		}
 		d.Skip(s.offsets[i])
-		return yoloString(d.UvarintBytes()) > sym
+		dc := s.codec.Decode(d.UvarintBytes())
+		return dc > sym
 	})
 	d := encoding.Decbuf{
 		B: s.bs.Range(0, s.bs.Len()),
@@ -1356,7 +1406,7 @@ func (s Symbols) ReverseLookup(sym string) (uint32, error) {
 	var lastSymbol string
 	for d.Err() == nil && res <= s.seen {
 		lastLen = d.Len()
-		lastSymbol = yoloString(d.UvarintBytes())
+		lastSymbol = s.codec.Decode(d.UvarintBytes())
 		if lastSymbol >= sym {
 			break
 		}
@@ -1382,8 +1432,9 @@ func (s Symbols) Iter() StringIter {
 	d := encoding.NewDecbufAt(s.bs, s.off, castagnoliTable)
 	cnt := d.Be32int()
 	return &symbolsIter{
-		d:   d,
-		cnt: cnt,
+		d:     d,
+		cnt:   cnt,
+		codec: s.codec,
 	}
 }
 
@@ -1391,15 +1442,17 @@ func (s Symbols) Iter() StringIter {
 type symbolsIter struct {
 	d   encoding.Decbuf
 	cnt int
-	cur string
+	cur []byte
 	err error
+
+	codec SymbolsCodec
 }
 
 func (s *symbolsIter) Next() bool {
 	if s.cnt == 0 || s.err != nil {
 		return false
 	}
-	s.cur = yoloString(s.d.UvarintBytes())
+	s.cur = s.d.UvarintBytes()
 	s.cnt--
 	if s.d.Err() != nil {
 		s.err = s.d.Err()
@@ -1408,7 +1461,7 @@ func (s *symbolsIter) Next() bool {
 	return true
 }
 
-func (s symbolsIter) At() string { return s.cur }
+func (s symbolsIter) At() string { return s.codec.Decode(s.cur) }
 func (s symbolsIter) Err() error { return s.err }
 
 // ReadOffsetTable reads an offset table and at the given position calls f for each
