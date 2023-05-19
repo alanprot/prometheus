@@ -23,8 +23,12 @@ import (
 type FastRegexMatcher struct {
 	re       *regexp.Regexp
 	prefix   string
+	prefixOp syntax.Op
 	suffix   string
+	suffixOp syntax.Op
 	contains string
+
+	singleOp syntax.Op
 }
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
@@ -43,18 +47,46 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 	}
 
 	if parsed.Op == syntax.OpConcat {
-		m.prefix, m.suffix, m.contains = optimizeConcatRegex(parsed)
+		m.optimizeConcatRegex(parsed)
 	}
+
+	m.optimizeStartRegex(parsed)
 
 	return m, nil
 }
 
 func (m *FastRegexMatcher) MatchString(s string) bool {
-	if m.prefix != "" && !strings.HasPrefix(s, m.prefix) {
-		return false
+	if m.singleOp == syntax.OpStar {
+		return !strings.Contains(s, "\n")
 	}
-	if m.suffix != "" && !strings.HasSuffix(s, m.suffix) {
-		return false
+
+	if m.singleOp == syntax.OpPlus {
+		return len(s) > 0 && !strings.Contains(s, "\n")
+	}
+
+	if m.prefix != "" {
+		if !strings.HasPrefix(s, m.prefix) {
+			return false
+		}
+		if m.suffixOp == syntax.OpStar {
+			return !strings.Contains(s[len(m.prefix):], "\n")
+		}
+
+		if m.suffixOp == syntax.OpPlus {
+			return len(s) > len(m.prefix) && !strings.Contains(s[len(m.prefix):], "\n")
+		}
+	}
+	if m.suffix != "" {
+		if !strings.HasSuffix(s, m.suffix) {
+			return false
+		}
+		if m.prefixOp == syntax.OpStar {
+			return !strings.Contains(s[0:len(m.suffix)], "\n")
+		}
+
+		if m.prefixOp == syntax.OpPlus {
+			return len(s) > len(m.suffix) && !strings.Contains(s[0:len(m.suffix)], "\n")
+		}
 	}
 	if m.contains != "" && !strings.Contains(s, m.contains) {
 		return false
@@ -66,9 +98,17 @@ func (m *FastRegexMatcher) GetRegexString() string {
 	return m.re.String()
 }
 
+func (m *FastRegexMatcher) optimizeStartRegex(r *syntax.Regexp) {
+	if r.Op == syntax.OpPlus || r.Op == syntax.OpStar {
+		if r.Sub[0].Op == syntax.OpAnyCharNotNL {
+			m.singleOp = r.Op
+		}
+	}
+}
+
 // optimizeConcatRegex returns literal prefix/suffix text that can be safely
 // checked against the label value before running the regexp matcher.
-func optimizeConcatRegex(r *syntax.Regexp) (prefix, suffix, contains string) {
+func (m *FastRegexMatcher) optimizeConcatRegex(r *syntax.Regexp) {
 	sub := r.Sub
 
 	// We can safely remove begin and end text matchers respectively
@@ -84,14 +124,26 @@ func optimizeConcatRegex(r *syntax.Regexp) (prefix, suffix, contains string) {
 		return
 	}
 
+	last := len(sub) - 1
+
+	if len(sub) == 1 {
+		m.optimizeStartRegex(sub[0])
+	}
+
 	// Given Prometheus regex matchers are always anchored to the begin/end
 	// of the text, if the first/last operations are literals, we can safely
 	// treat them as prefix/suffix.
 	if sub[0].Op == syntax.OpLiteral && (sub[0].Flags&syntax.FoldCase) == 0 {
-		prefix = string(sub[0].Rune)
+		m.prefix = string(sub[0].Rune)
+		if len(sub) == 2 && (sub[last].Op == syntax.OpStar || sub[last].Op == syntax.OpPlus) && sub[last].Sub[0].Op == syntax.OpAnyCharNotNL {
+			m.suffixOp = sub[last].Op
+		}
 	}
-	if last := len(sub) - 1; sub[last].Op == syntax.OpLiteral && (sub[last].Flags&syntax.FoldCase) == 0 {
-		suffix = string(sub[last].Rune)
+	if sub[last].Op == syntax.OpLiteral && (sub[last].Flags&syntax.FoldCase) == 0 {
+		m.suffix = string(sub[last].Rune)
+		if len(sub) == 2 && (sub[0].Op == syntax.OpStar || sub[0].Op == syntax.OpPlus) && sub[0].Sub[0].Op == syntax.OpAnyCharNotNL {
+			m.prefixOp = sub[0].Op
+		}
 	}
 
 	// If contains any literal which is not a prefix/suffix, we keep the
@@ -99,7 +151,7 @@ func optimizeConcatRegex(r *syntax.Regexp) (prefix, suffix, contains string) {
 	// fast path.
 	for i := 1; i < len(sub)-1; i++ {
 		if sub[i].Op == syntax.OpLiteral && (sub[i].Flags&syntax.FoldCase) == 0 {
-			contains = string(sub[i].Rune)
+			m.contains = string(sub[i].Rune)
 			break
 		}
 	}

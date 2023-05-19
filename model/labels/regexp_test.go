@@ -32,7 +32,17 @@ func TestNewFastRegexMatcher(t *testing.T) {
 		{regex: "(foo|bar)", value: "bar", expected: true},
 		{regex: "foo.*", value: "foo bar", expected: true},
 		{regex: "foo.*", value: "bar foo", expected: false},
-		{regex: ".*foo", value: "foo bar", expected: false},
+		{regex: "la.*foo", value: "foo bar", expected: false},
+		{regex: "foo.*bar", value: "foo bar", expected: true},
+		{regex: ".*bar", value: "bar", expected: true},
+		{regex: ".+bar", value: "bar", expected: false},
+		{regex: ".+bar", value: "xbar", expected: true},
+		{regex: "bar.*", value: "bar", expected: true},
+		{regex: "bar.+", value: "bar", expected: false},
+		{regex: "bar.+", value: "xbarx", expected: false},
+		{regex: "bar.+", value: "barx", expected: true},
+		{regex: "bara+", value: "barb", expected: false},
+		{regex: "bara+", value: "bara", expected: true},
 		{regex: ".*foo", value: "bar foo", expected: true},
 		{regex: ".*foo", value: "foo", expected: true},
 		{regex: "^.*foo$", value: "foo", expected: true},
@@ -49,14 +59,20 @@ func TestNewFastRegexMatcher(t *testing.T) {
 		{regex: ".*foo.*", value: "hello foo\n world", expected: false},
 		{regex: ".*foo\n.*", value: "hello foo\n world", expected: true},
 		{regex: ".*", value: "foo", expected: true},
+		{regex: ".*", value: "", expected: true},
+		{regex: ".+", value: "foo", expected: true},
+		{regex: ".*", value: "\n", expected: false},
+		{regex: ".+", value: "", expected: false},
 		{regex: "", value: "foo", expected: false},
 		{regex: "", value: "", expected: true},
 	}
 
 	for _, c := range cases {
-		m, err := NewFastRegexMatcher(c.regex)
-		require.NoError(t, err)
-		require.Equal(t, c.expected, m.MatchString(c.value))
+		t.Run(c.regex, func(t *testing.T) {
+			m, err := NewFastRegexMatcher(c.regex)
+			require.NoError(t, err)
+			require.Equal(t, c.expected, m.MatchString(c.value))
+		})
 	}
 }
 
@@ -66,13 +82,18 @@ func TestOptimizeConcatRegex(t *testing.T) {
 		prefix   string
 		suffix   string
 		contains string
+		prefixOp syntax.Op
+		suffixOp syntax.Op
+		singleOp syntax.Op
 	}{
 		{regex: "foo(hello|bar)", prefix: "foo", suffix: "", contains: ""},
 		{regex: "foo(hello|bar)world", prefix: "foo", suffix: "world", contains: ""},
-		{regex: "foo.*", prefix: "foo", suffix: "", contains: ""},
+		{regex: "foo.*", prefix: "foo", suffix: "", contains: "", suffixOp: syntax.OpStar},
 		{regex: "foo.*hello.*bar", prefix: "foo", suffix: "bar", contains: "hello"},
-		{regex: ".*foo", prefix: "", suffix: "foo", contains: ""},
-		{regex: "^.*foo$", prefix: "", suffix: "foo", contains: ""},
+		{regex: ".*foo", prefix: "", suffix: "foo", contains: "", prefixOp: syntax.OpStar},
+		{regex: ".+foo", prefix: "", suffix: "foo", contains: "", prefixOp: syntax.OpPlus},
+		{regex: "a+foo", prefix: "", suffix: "foo", contains: ""},
+		{regex: "^.*foo$", prefix: "", suffix: "foo", contains: "", prefixOp: syntax.OpStar},
 		{regex: ".*foo.*", prefix: "", suffix: "", contains: "foo"},
 		{regex: ".*foo.*bar.*", prefix: "", suffix: "", contains: "foo"},
 		{regex: ".*(foo|bar).*", prefix: "", suffix: "", contains: ""},
@@ -85,16 +106,22 @@ func TestOptimizeConcatRegex(t *testing.T) {
 		{regex: "(?i).*(?-i:abc)def", prefix: "", suffix: "", contains: "abc"},
 		{regex: ".*(?msU:abc).*", prefix: "", suffix: "", contains: "abc"},
 		{regex: "[aA]bc.*", prefix: "", suffix: "", contains: "bc"},
+		{regex: "^.*$", singleOp: syntax.OpStar},
+		{regex: ".*", singleOp: syntax.OpStar},
 	}
 
 	for _, c := range cases {
-		parsed, err := syntax.Parse(c.regex, syntax.Perl)
-		require.NoError(t, err)
+		t.Run(c.regex, func(t *testing.T) {
+			m, err := NewFastRegexMatcher(c.regex)
+			require.NoError(t, err)
 
-		prefix, suffix, contains := optimizeConcatRegex(parsed)
-		require.Equal(t, c.prefix, prefix)
-		require.Equal(t, c.suffix, suffix)
-		require.Equal(t, c.contains, contains)
+			require.Equal(t, c.prefix, m.prefix)
+			require.Equal(t, c.suffix, m.suffix)
+			require.Equal(t, c.contains, m.contains)
+			require.Equal(t, c.suffixOp, m.suffixOp)
+			require.Equal(t, c.prefixOp, m.prefixOp)
+			require.Equal(t, c.singleOp, m.singleOp)
+		})
 	}
 }
 
