@@ -1464,6 +1464,8 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 		// Reuse objects across steps to save memory allocations.
 		var floats []FPoint
 		var histograms []HPoint
+		var changed bool
+		var outVec Vector
 		inMatrix := make(Matrix, 1)
 		inArgs[matrixArgIndex] = inMatrix
 		enh := &EvalNodeHelper{Out: make(Vector, 0, 1)}
@@ -1505,7 +1507,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				maxt := ts - offset
 				mint := maxt - selRange
 				// Evaluate the matrix selector for this series for this step.
-				floats, histograms = ev.matrixIterSlice(it, mint, maxt, floats, histograms)
+				floats, histograms, changed = ev.matrixIterSlice(it, mint, maxt, floats, histograms)
 				if len(floats)+len(histograms) == 0 {
 					continue
 				}
@@ -1513,8 +1515,12 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				inMatrix[0].Histograms = histograms
 				enh.Ts = ts
 				// Make the function call.
-				outVec, annos := call(inArgs, e.Args, enh)
-				warnings.Merge(annos)
+				if changed {
+					var annos annotations.Annotations
+					outVec, annos = call(inArgs, e.Args, enh)
+					warnings.Merge(annos)
+				}
+
 				ev.samplesStats.IncrementSamplesAtStep(step, int64(len(floats)+totalHPointSize(histograms)))
 
 				enh.Out = outVec[:0]
@@ -2005,7 +2011,7 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, annota
 			Metric: series[i].Labels(),
 		}
 
-		ss.Floats, ss.Histograms = ev.matrixIterSlice(it, mint, maxt, nil, nil)
+		ss.Floats, ss.Histograms, _ = ev.matrixIterSlice(it, mint, maxt, nil, nil)
 		totalSize := int64(len(ss.Floats)) + int64(totalHPointSize(ss.Histograms))
 		ev.samplesStats.IncrementSamplesAtTimestamp(ev.startTimestamp, totalSize)
 
@@ -2030,8 +2036,9 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, annota
 func (ev *evaluator) matrixIterSlice(
 	it *storage.BufferedSeriesIterator, mint, maxt int64,
 	floats []FPoint, histograms []HPoint,
-) ([]FPoint, []HPoint) {
+) ([]FPoint, []HPoint, bool) {
 	mintFloats, mintHistograms := mint, mint
+	changed := false
 
 	// First floats...
 	if len(floats) > 0 && floats[len(floats)-1].T >= mint {
@@ -2048,10 +2055,14 @@ func (ev *evaluator) matrixIterSlice(
 		floats = floats[:len(floats)-drop]
 		// Only append points with timestamps after the last timestamp we have.
 		mintFloats = floats[len(floats)-1].T + 1
+		if drop > 0 {
+			changed = true
+		}
 	} else {
 		ev.currentSamples -= len(floats)
 		if floats != nil {
 			floats = floats[:0]
+			changed = true
 		}
 	}
 
@@ -2075,10 +2086,14 @@ func (ev *evaluator) matrixIterSlice(
 		ev.currentSamples -= totalHPointSize(histograms)
 		// Only append points with timestamps after the last timestamp we have.
 		mintHistograms = histograms[len(histograms)-1].T + 1
+		if drop > 0 {
+			changed = true
+		}
 	} else {
 		ev.currentSamples -= totalHPointSize(histograms)
 		if histograms != nil {
 			histograms = histograms[:0]
+			changed = true
 		}
 	}
 
@@ -2117,6 +2132,7 @@ loop:
 					ev.error(ErrTooManySamples(env))
 				}
 				ev.currentSamples += histograms[n].size()
+				changed = true
 			}
 		case chunkenc.ValFloat:
 			t, f := buf.At()
@@ -2133,6 +2149,7 @@ loop:
 					floats = getFPointSlice(16)
 				}
 				floats = append(floats, FPoint{T: t, F: f})
+				changed = true
 			}
 		}
 	}
@@ -2154,6 +2171,7 @@ loop:
 				point := HPoint{T: t, H: h.Copy()}
 				histograms = append(histograms, point)
 				ev.currentSamples += point.size()
+				changed = true
 			}
 		}
 	case chunkenc.ValFloat:
@@ -2167,10 +2185,11 @@ loop:
 			}
 			floats = append(floats, FPoint{T: t, F: f})
 			ev.currentSamples++
+			changed = true
 		}
 	}
 	ev.samplesStats.UpdatePeak(ev.currentSamples)
-	return floats, histograms
+	return floats, histograms, changed
 }
 
 func (ev *evaluator) VectorAnd(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
