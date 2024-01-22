@@ -76,8 +76,9 @@ func setupRangeQueryTestData(stor *teststorage.TestStorage, _ *Engine, interval,
 }
 
 type benchCase struct {
-	expr  string
-	steps int
+	expr     string
+	steps    int
+	interval int64
 }
 
 func rangeQueryCases() []benchCase {
@@ -211,6 +212,18 @@ func rangeQueryCases() []benchCase {
 		}
 	}
 	cases = tmp
+	tmp = []benchCase{}
+
+	for _, c := range cases {
+		if c.interval == 0 {
+			tmp = append(tmp, benchCase{expr: c.expr, steps: c.steps, interval: 3})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: c.steps, interval: 10})
+		} else {
+			tmp = append(tmp, c)
+		}
+	}
+
+	cases = tmp
 
 	// No step will be replaced by cases with the standard step.
 	tmp = []benchCase{}
@@ -218,9 +231,9 @@ func rangeQueryCases() []benchCase {
 		if c.steps != 0 {
 			tmp = append(tmp, c)
 		} else {
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 1})
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 100})
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 1000})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: 1, interval: c.interval})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: 100, interval: c.interval})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: 1000, interval: c.interval})
 		}
 	}
 	return tmp
@@ -249,15 +262,15 @@ func BenchmarkRangeQuery(b *testing.B) {
 	cases := rangeQueryCases()
 
 	for _, c := range cases {
-		name := fmt.Sprintf("expr=%s,steps=%d", c.expr, c.steps)
+		name := fmt.Sprintf("expr=%s,steps=%d,interval=%d", c.expr, c.steps, c.interval)
 		b.Run(name, func(b *testing.B) {
 			ctx := context.Background()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				qry, err := engine.NewRangeQuery(
 					ctx, stor, nil, c.expr,
-					time.Unix(int64((numIntervals-c.steps)*10), 0),
-					time.Unix(int64(numIntervals*10), 0), time.Second*10)
+					time.Unix(int64(numIntervals*10-c.steps*int(c.interval)), 0),
+					time.Unix(int64(numIntervals*10), 0), time.Duration(c.interval)*time.Second)
 				if err != nil {
 					b.Fatal(err)
 				}
