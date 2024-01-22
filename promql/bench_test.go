@@ -76,97 +76,98 @@ func setupRangeQueryTestData(stor *teststorage.TestStorage, _ *Engine, interval,
 }
 
 type benchCase struct {
-	expr  string
-	steps int
+	expr     string
+	steps    int
+	interval int64
 }
 
 func rangeQueryCases() []benchCase {
 	cases := []benchCase{
-		// Plain retrieval.
-		{
-			expr: "a_X",
-		},
-		// Simple rate.
-		{
-			expr: "rate(a_X[1m])",
-		},
-		{
-			expr:  "rate(a_X[1m])",
-			steps: 10000,
-		},
-		// Holt-Winters and long ranges.
-		{
-			expr: "holt_winters(a_X[1d], 0.3, 0.3)",
-		},
-		{
-			expr: "changes(a_X[1d])",
-		},
-		{
-			expr: "rate(a_X[1d])",
-		},
-		{
-			expr: "absent_over_time(a_X[1d])",
-		},
-		// Unary operators.
-		{
-			expr: "-a_X",
-		},
-		// Binary operators.
-		{
-			expr: "a_X - b_X",
-		},
-		{
-			expr:  "a_X - b_X",
-			steps: 10000,
-		},
-		{
-			expr: "a_X and b_X{l=~'.*[0-4]$'}",
-		},
-		{
-			expr: "a_X or b_X{l=~'.*[0-4]$'}",
-		},
-		{
-			expr: "a_X unless b_X{l=~'.*[0-4]$'}",
-		},
-		{
-			expr: "a_X and b_X{l='notfound'}",
-		},
-		// Simple functions.
-		{
-			expr: "abs(a_X)",
-		},
-		{
-			expr: "label_replace(a_X, 'l2', '$1', 'l', '(.*)')",
-		},
-		{
-			expr: "label_join(a_X, 'l2', '-', 'l', 'l')",
-		},
-		// Simple aggregations.
-		{
-			expr: "sum(a_X)",
-		},
-		{
-			expr: "sum without (l)(h_X)",
-		},
-		{
-			expr: "sum without (le)(h_X)",
-		},
-		{
-			expr: "sum by (l)(h_X)",
-		},
-		{
-			expr: "sum by (le)(h_X)",
-		},
-		{
-			expr:  "count_values('value', h_X)",
-			steps: 100,
-		},
-		{
-			expr: "topk(1, a_X)",
-		},
-		{
-			expr: "topk(5, a_X)",
-		},
+		//// Plain retrieval.
+		//{
+		//	expr: "a_X",
+		//},
+		//// Simple rate.
+		//{
+		//	expr: "rate(a_X[1m])",
+		//},
+		//{
+		//	expr:  "rate(a_X[1m])",
+		//	steps: 10000,
+		//},
+		//// Holt-Winters and long ranges.
+		//{
+		//	expr: "holt_winters(a_X[1d], 0.3, 0.3)",
+		//},
+		//{
+		//	expr: "changes(a_X[1d])",
+		//},
+		//{
+		//	expr: "rate(a_X[1d])",
+		//},
+		//{
+		//	expr: "absent_over_time(a_X[1d])",
+		//},
+		//// Unary operators.
+		//{
+		//	expr: "-a_X",
+		//},
+		//// Binary operators.
+		//{
+		//	expr: "a_X - b_X",
+		//},
+		//{
+		//	expr:  "a_X - b_X",
+		//	steps: 10000,
+		//},
+		//{
+		//	expr: "a_X and b_X{l=~'.*[0-4]$'}",
+		//},
+		//{
+		//	expr: "a_X or b_X{l=~'.*[0-4]$'}",
+		//},
+		//{
+		//	expr: "a_X unless b_X{l=~'.*[0-4]$'}",
+		//},
+		//{
+		//	expr: "a_X and b_X{l='notfound'}",
+		//},
+		//// Simple functions.
+		//{
+		//	expr: "abs(a_X)",
+		//},
+		//{
+		//	expr: "label_replace(a_X, 'l2', '$1', 'l', '(.*)')",
+		//},
+		//{
+		//	expr: "label_join(a_X, 'l2', '-', 'l', 'l')",
+		//},
+		//// Simple aggregations.
+		//{
+		//	expr: "sum(a_X)",
+		//},
+		//{
+		//	expr: "sum without (l)(h_X)",
+		//},
+		//{
+		//	expr: "sum without (le)(h_X)",
+		//},
+		//{
+		//	expr: "sum by (l)(h_X)",
+		//},
+		//{
+		//	expr: "sum by (le)(h_X)",
+		//},
+		//{
+		//	expr:  "count_values('value', h_X)",
+		//	steps: 100,
+		//},
+		//{
+		//	expr: "topk(1, a_X)",
+		//},
+		//{
+		//	expr: "topk(5, a_X)",
+		//},
 		// Combinations.
 		{
 			expr: "rate(a_X[1m]) + rate(b_X[1m])",
@@ -211,6 +212,18 @@ func rangeQueryCases() []benchCase {
 		}
 	}
 	cases = tmp
+	tmp = []benchCase{}
+
+	for _, c := range cases {
+		if c.interval == 0 {
+			tmp = append(tmp, benchCase{expr: c.expr, steps: c.steps, interval: 3})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: c.steps, interval: 10})
+		} else {
+			tmp = append(tmp, c)
+		}
+	}
+
+	cases = tmp
 
 	// No step will be replaced by cases with the standard step.
 	tmp = []benchCase{}
@@ -218,9 +231,9 @@ func rangeQueryCases() []benchCase {
 		if c.steps != 0 {
 			tmp = append(tmp, c)
 		} else {
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 1})
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 100})
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 1000})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: 1, interval: c.interval})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: 100, interval: c.interval})
+			tmp = append(tmp, benchCase{expr: c.expr, steps: 1000, interval: c.interval})
 		}
 	}
 	return tmp
@@ -249,15 +262,15 @@ func BenchmarkRangeQuery(b *testing.B) {
 	cases := rangeQueryCases()
 
 	for _, c := range cases {
-		name := fmt.Sprintf("expr=%s,steps=%d", c.expr, c.steps)
+		name := fmt.Sprintf("expr=%s,steps=%d,interval=%d", c.expr, c.steps, c.interval)
 		b.Run(name, func(b *testing.B) {
 			ctx := context.Background()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				qry, err := engine.NewRangeQuery(
 					ctx, stor, nil, c.expr,
-					time.Unix(int64((numIntervals-c.steps)*10), 0),
-					time.Unix(int64(numIntervals*10), 0), time.Second*10)
+					time.Unix(int64(numIntervals*10-c.steps*int(c.interval)), 0),
+					time.Unix(int64(numIntervals*10), 0), time.Duration(c.interval)*time.Second)
 				if err != nil {
 					b.Fatal(err)
 				}
