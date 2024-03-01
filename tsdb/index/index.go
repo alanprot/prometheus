@@ -1241,6 +1241,28 @@ func newReader(b ByteSlice, c io.Closer) (*Reader, error) {
 				lastName, lastValue = name, value
 				lastOff = off
 			}
+
+			// Lets make calculate the CRC of the allPostingsKey during initialization
+			// and avoid recalculating it on each query  - this is the largest and most common posting as any query
+			// with a NotEqual matcher would request it).
+			if IsAllPostingsKey(string(name), string(value)) {
+				d := encoding.NewDecbufAt(r.b, int(r.toc.PostingsTable), nil)
+				d.Skip(off)
+				d.Uvarint()                   // Keycount.
+				n := string(d.UvarintBytes()) // Label name.
+				v := string(d.UvarintBytes()) // Label name.
+
+				if !IsAllPostingsKey(n, v) {
+					return fmt.Errorf("reading all posting key: %w", err)
+				}
+
+				postingsOff := d.Uvarint64() // Offset.
+				d = encoding.NewDecbufAt(r.b, int(postingsOff), castagnoliTable)
+				if d.Err() != nil {
+					return d.Err()
+				}
+			}
+
 			valueCount++
 			return nil
 		}); err != nil {
@@ -1738,7 +1760,11 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 			for string(v) >= value {
 				if string(v) == value {
 					// Read from the postings table.
-					d2 := encoding.NewDecbufAt(r.b, int(postingsOff), castagnoliTable)
+					var cTable *crc32.Table
+					if !IsAllPostingsKey(name, value) {
+						cTable = castagnoliTable
+					}
+					d2 := encoding.NewDecbufAt(r.b, int(postingsOff), cTable)
 					_, p, err := r.dec.Postings(d2.Get())
 					if err != nil {
 						return nil, fmt.Errorf("decode postings: %w", err)

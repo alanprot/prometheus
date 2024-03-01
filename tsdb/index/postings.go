@@ -38,6 +38,11 @@ func AllPostingsKey() (name, value string) {
 	return allPostingsKey.Name, allPostingsKey.Value
 }
 
+// IsAllPostingsKey returns true if for the all postings key name and value.
+func IsAllPostingsKey(name, value string) bool {
+	return name == allPostingsKey.Name && value == allPostingsKey.Value
+}
+
 // ensureOrderBatchSize is the max number of postings passed to a worker in a single batch in MemPostings.EnsureOrder().
 const ensureOrderBatchSize = 1024
 
