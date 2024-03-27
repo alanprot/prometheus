@@ -2311,7 +2311,7 @@ func (m mockIndex) Postings(ctx context.Context, name string, values ...string) 
 		l := labels.Label{Name: name, Value: value}
 		res = append(res, index.NewListPostings(m.postings[l]))
 	}
-	return index.Merge(ctx, res...), nil
+	return index.Merge(res...), nil
 }
 
 func (m mockIndex) SortedPostings(p index.Postings) index.Postings {

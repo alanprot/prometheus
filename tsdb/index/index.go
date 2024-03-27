@@ -1683,7 +1683,7 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 			}
 			res = append(res, p)
 		}
-		return Merge(ctx, res...), nil
+		return Merge(res...), nil
 	}
 
 	e, ok := r.postings[name]
@@ -1764,7 +1764,7 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 		}
 	}
 
-	return Merge(ctx, res...), nil
+	return Merge(res...), nil
 }
 
 // SortedPostings returns the given postings list reordered so that the backing series

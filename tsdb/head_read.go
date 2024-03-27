@@ -104,20 +104,12 @@ func (h *headIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 }
 
 // Postings returns the postings list iterator for the label pairs.
-func (h *headIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
+func (h *headIndexReader) Postings(_ context.Context, name string, values ...string) (index.Postings, error) {
 	switch len(values) {
 	case 0:
 		return index.EmptyPostings(), nil
-	case 1:
-		return h.head.postings.Get(name, values[0]), nil
 	default:
-		res := make([]index.Postings, 0, len(values))
-		for _, value := range values {
-			if p := h.head.postings.Get(name, value); !index.IsEmptyPostingsType(p) {
-				res = append(res, p)
-			}
-		}
-		return index.Merge(ctx, res...), nil
+		return h.head.postings.Get(name, values...), nil
 	}
 }
 

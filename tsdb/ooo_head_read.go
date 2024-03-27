@@ -228,7 +228,7 @@ func (oh *OOOHeadIndexReader) Postings(ctx context.Context, name string, values 
 		for _, value := range values {
 			res = append(res, oh.head.postings.Get(name, value)) // TODO(ganesh) Also call GetOOOPostings
 		}
-		return index.Merge(ctx, res...), nil
+		return index.Merge(res...), nil
 	}
 }
 

@@ -108,7 +108,7 @@ func (m mockIndex) Postings(ctx context.Context, name string, values ...string) 
 		l := labels.Label{Name: name, Value: value}
 		p = append(p, m.SortedPostings(NewListPostings(m.postings[l])))
 	}
-	return Merge(ctx, p...), nil
+	return Merge(p...), nil
 }
 
 func (m mockIndex) SortedPostings(p Postings) Postings {

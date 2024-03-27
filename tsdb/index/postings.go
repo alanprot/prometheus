@@ -208,19 +208,27 @@ func (p *MemPostings) Stats(label string, limit int) *PostingsStats {
 }
 
 // Get returns a postings list for the given label pair.
-func (p *MemPostings) Get(name, value string) Postings {
-	var lp []storage.SeriesRef
+func (p *MemPostings) Get(name string, values ...string) Postings {
+	res := make([]Postings, 0, len(values))
 	p.mtx.RLock()
 	l := p.m[name]
 	if l != nil {
-		lp = l[value]
+		for _, value := range values {
+			if p, ok := l[value]; ok {
+				res = append(res, NewListPostings(p))
+			} else {
+				res = nil
+				break
+			}
+		}
 	}
 	p.mtx.RUnlock()
 
-	if lp == nil {
+	if res == nil {
 		return EmptyPostings()
 	}
-	return newListPostings(lp...)
+
+	return Merge(res...)
 }
 
 // All returns a postings list over all documents ever added.
@@ -527,7 +535,7 @@ func (it *intersectPostings) Err() error {
 }
 
 // Merge returns a new iterator over the union of the input iterators.
-func Merge(_ context.Context, its ...Postings) Postings {
+func Merge(its ...Postings) Postings {
 	if len(its) == 0 {
 		return EmptyPostings()
 	}

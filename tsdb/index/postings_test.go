@@ -391,14 +391,13 @@ func BenchmarkMerge(t *testing.B) {
 	its := make([]Postings, len(refs))
 	for _, nSeries := range []int{1, 10, 100, 1000, 10000, 100000} {
 		t.Run(fmt.Sprint(nSeries), func(bench *testing.B) {
-			ctx := context.Background()
 			for i := 0; i < bench.N; i++ {
 				// Reset the ListPostings to their original values each time round the loop.
 				for j := range refs[:nSeries] {
 					lps[j].list = refs[j]
 					its[j] = lps[j]
 				}
-				if err := consumePostings(Merge(ctx, its[:nSeries]...)); err != nil {
+				if err := consumePostings(Merge(its[:nSeries]...)); err != nil {
 					bench.Fatal(err)
 				}
 			}
@@ -411,7 +410,7 @@ func TestMultiMerge(t *testing.T) {
 	i2 := newListPostings(2, 4, 5, 6, 7, 8, 999, 1001)
 	i3 := newListPostings(1, 2, 5, 6, 7, 8, 1001, 1200)
 
-	res, err := ExpandPostings(Merge(context.Background(), i1, i2, i3))
+	res, err := ExpandPostings(Merge(i1, i2, i3))
 	require.NoError(t, err)
 	require.Equal(t, []storage.SeriesRef{1, 2, 3, 4, 5, 6, 7, 8, 999, 1000, 1001, 1200}, res)
 }
@@ -497,12 +496,10 @@ func TestMergedPostings(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			require.NotNil(t, c.res, "merge result expectancy cannot be nil")
 
-			ctx := context.Background()
-
 			expected, err := ExpandPostings(c.res)
 			require.NoError(t, err)
 
-			m := Merge(ctx, c.in...)
+			m := Merge(c.in...)
 
 			if c.res == EmptyPostings() {
 				require.False(t, m.Next())
@@ -561,12 +558,10 @@ func TestMergedPostingsSeek(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		ctx := context.Background()
-
 		a := newListPostings(c.a...)
 		b := newListPostings(c.b...)
 
-		p := Merge(ctx, a, b)
+		p := Merge(a, b)
 
 		require.Equal(t, c.success, p.Seek(c.seek))
 
@@ -822,7 +817,6 @@ func TestIntersectWithMerge(t *testing.T) {
 	a := newListPostings(21, 22, 23, 24, 25, 30)
 
 	b := Merge(
-		context.Background(),
 		newListPostings(10, 20, 30),
 		newListPostings(15, 26, 30),
 	)
