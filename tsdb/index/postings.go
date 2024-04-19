@@ -29,6 +29,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/util/pool"
 )
 
 var allPostingsKey = labels.Label{}
@@ -54,16 +55,18 @@ var ensureOrderBatchPool = sync.Pool{
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
 type MemPostings struct {
-	mtx     sync.RWMutex
-	m       map[string]map[string][]storage.SeriesRef
-	ordered bool
+	mtx       sync.RWMutex
+	m         map[string]map[string][]storage.SeriesRef
+	ordered   bool
+	slicePool pool.Pool
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
 func NewMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
-		ordered: true,
+		m:         make(map[string]map[string][]storage.SeriesRef, 512),
+		ordered:   true,
+		slicePool: pool.NewBucketedPool(1e3, 100e6, 3, func(sz int) interface{} { return make([]string, 0, sz) }),
 	}
 }
 
@@ -71,8 +74,9 @@ func NewMemPostings() *MemPostings {
 // until EnsureOrder() was called once.
 func NewUnorderedMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
-		ordered: false,
+		m:         make(map[string]map[string][]storage.SeriesRef, 512),
+		ordered:   false,
+		slicePool: pool.NewBucketedPool(1e3, 100e6, 3, func(sz int) interface{} { return make([]string, 0, sz) }),
 	}
 }
 
@@ -142,15 +146,17 @@ func (p *MemPostings) LabelNames() []string {
 }
 
 // LabelValues returns label values for the given name.
-func (p *MemPostings) LabelValues(_ context.Context, name string) []string {
+func (p *MemPostings) LabelValues(_ context.Context, name string) ([]string, func()) {
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()
 
-	values := make([]string, 0, len(p.m[name]))
+	values := p.slicePool.Get(len(p.m[name])).([]string)
 	for v := range p.m[name] {
 		values = append(values, v)
 	}
-	return values
+	return values, func() {
+		p.slicePool.Put(values[:0])
+	}
 }
 
 // PostingsStats contains cardinality based statistics for postings.
@@ -291,7 +297,7 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}) {
 	var keys, vals []string
 
-	// Collect all keys relevant for deletion once. New keys added afterwards
+	// Collect all keys relevant for deletion once. NewBucketedPool keys added afterwards
 	// can by definition not be affected by any of the given deletes.
 	p.mtx.RLock()
 	for n := range p.m {

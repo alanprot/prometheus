@@ -19,17 +19,39 @@ import (
 	"sync"
 )
 
-// Pool is a bucketed pool for variably sized byte slices.
-type Pool struct {
+type Pool interface {
+	Get(sz int) interface{}
+	Put(s interface{})
+}
+
+type NoOpPool struct {
+	// make is the function used to create an empty slice when none exist yet.
+	make func(int) interface{}
+}
+
+func (n NoOpPool) Get(sz int) interface{} {
+	return n.make(sz)
+}
+
+func (n NoOpPool) Put(_ interface{}) {
+	// NoOp
+}
+
+func NewNoOpPool(makeFunc func(int) interface{}) Pool {
+	return &NoOpPool{make: makeFunc}
+}
+
+// BucketedPool is a bucketed pool for variably sized byte slices.
+type BucketedPool struct {
 	buckets []sync.Pool
 	sizes   []int
 	// make is the function used to create an empty slice when none exist yet.
 	make func(int) interface{}
 }
 
-// New returns a new Pool with size buckets for minSize to maxSize
+// NewBucketedPool returns a new Pool with size buckets for minSize to maxSize
 // increasing by the given factor.
-func New(minSize, maxSize int, factor float64, makeFunc func(int) interface{}) *Pool {
+func NewBucketedPool(minSize, maxSize int, factor float64, makeFunc func(int) interface{}) Pool {
 	if minSize < 1 {
 		panic("invalid minimum pool size")
 	}
@@ -46,7 +68,7 @@ func New(minSize, maxSize int, factor float64, makeFunc func(int) interface{}) *
 		sizes = append(sizes, s)
 	}
 
-	p := &Pool{
+	p := &BucketedPool{
 		buckets: make([]sync.Pool, len(sizes)),
 		sizes:   sizes,
 		make:    makeFunc,
@@ -56,7 +78,7 @@ func New(minSize, maxSize int, factor float64, makeFunc func(int) interface{}) *
 }
 
 // Get returns a new byte slices that fits the given size.
-func (p *Pool) Get(sz int) interface{} {
+func (p *BucketedPool) Get(sz int) interface{} {
 	for i, bktSize := range p.sizes {
 		if sz > bktSize {
 			continue
@@ -71,7 +93,7 @@ func (p *Pool) Get(sz int) interface{} {
 }
 
 // Put adds a slice to the right bucket in the pool.
-func (p *Pool) Put(s interface{}) {
+func (p *BucketedPool) Put(s interface{}) {
 	slice := reflect.ValueOf(s)
 
 	if slice.Kind() != reflect.Slice {

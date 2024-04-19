@@ -122,7 +122,7 @@ const maxAheadTime = 10 * time.Minute
 // returning an empty label set is interpreted as "drop".
 type labelsMutator func(labels.Labels) labels.Labels
 
-func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed uint64, logger log.Logger, buffers *pool.Pool, options *Options, metrics *scrapeMetrics) (*scrapePool, error) {
+func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed uint64, logger log.Logger, buffers pool.Pool, options *Options, metrics *scrapeMetrics) (*scrapePool, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -813,7 +813,7 @@ type scrapeLoop struct {
 	l                        log.Logger
 	cache                    *scrapeCache
 	lastScrapeSize           int
-	buffers                  *pool.Pool
+	buffers                  pool.Pool
 	offsetSeed               uint64
 	honorTimestamps          bool
 	trackTimestampsStaleness bool
@@ -1106,7 +1106,7 @@ func (c *scrapeCache) LengthMetadata() int {
 func newScrapeLoop(ctx context.Context,
 	sc scraper,
 	l log.Logger,
-	buffers *pool.Pool,
+	buffers pool.Pool,
 	sampleMutator labelsMutator,
 	reportSampleMutator labelsMutator,
 	appender func(ctx context.Context) storage.Appender,
@@ -1135,7 +1135,7 @@ func newScrapeLoop(ctx context.Context,
 		l = log.NewNopLogger()
 	}
 	if buffers == nil {
-		buffers = pool.New(1e3, 1e6, 3, func(sz int) interface{} { return make([]byte, 0, sz) })
+		buffers = pool.NewBucketedPool(1e3, 1e6, 3, func(sz int) interface{} { return make([]byte, 0, sz) })
 	}
 	if cache == nil {
 		cache = newScrapeCache(metrics)

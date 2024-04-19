@@ -58,7 +58,7 @@ func NewManager(o *Options, logger log.Logger, app storage.Appendable, registere
 		graceShut:     make(chan struct{}),
 		triggerReload: make(chan struct{}, 1),
 		metrics:       sm,
-		buffers:       pool.New(1e3, 100e6, 3, func(sz int) interface{} { return make([]byte, 0, sz) }),
+		buffers:       pool.NewBucketedPool(1e3, 100e6, 3, func(sz int) interface{} { return make([]byte, 0, sz) }),
 	}
 
 	m.metrics.setTargetMetadataCacheGatherer(m)
@@ -102,7 +102,7 @@ type Manager struct {
 	scrapeConfigs map[string]*config.ScrapeConfig
 	scrapePools   map[string]*scrapePool
 	targetSets    map[string][]*targetgroup.Group
-	buffers       *pool.Pool
+	buffers       pool.Pool
 
 	triggerReload chan struct{}
 

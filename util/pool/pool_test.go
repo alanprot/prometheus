@@ -24,7 +24,7 @@ func makeFunc(size int) interface{} {
 }
 
 func TestPool(t *testing.T) {
-	testPool := New(1, 8, 2, makeFunc)
+	testPool := NewBucketedPool(1, 8, 2, makeFunc)
 	cases := []struct {
 		size        int
 		expectedCap int

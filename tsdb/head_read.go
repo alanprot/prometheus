@@ -49,9 +49,14 @@ func (h *Head) indexRange(mint, maxt int64) *headIndexReader {
 type headIndexReader struct {
 	head       *Head
 	mint, maxt int64
+
+	closeFunc []func()
 }
 
 func (h *headIndexReader) Close() error {
+	for _, c := range h.closeFunc {
+		c()
+	}
 	return nil
 }
 
@@ -81,7 +86,9 @@ func (h *headIndexReader) LabelValues(ctx context.Context, name string, matchers
 	}
 
 	if len(matchers) == 0 {
-		return h.head.postings.LabelValues(ctx, name), nil
+		vls, c := h.head.postings.LabelValues(ctx, name)
+		h.closeFunc = append(h.closeFunc, c)
+		return vls, nil
 	}
 
 	return labelValuesWithMatchers(ctx, h, name, matchers...)

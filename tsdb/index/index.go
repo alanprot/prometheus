@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/prometheus/prometheus/util/pool"
 	"hash"
 	"hash/crc32"
 	"io"
@@ -1122,6 +1123,8 @@ type Reader struct {
 	dec *Decoder
 
 	version int
+
+	slicePool pool.Pool
 }
 
 type postingOffset struct {
@@ -1151,17 +1154,17 @@ func (b realByteSlice) Sub(start, end int) ByteSlice {
 
 // NewReader returns a new index reader on the given byte slice. It automatically
 // handles different format versions.
-func NewReader(b ByteSlice) (*Reader, error) {
-	return newReader(b, io.NopCloser(nil))
+func NewReader(b ByteSlice, slicePool pool.Pool) (*Reader, error) {
+	return newReader(b, io.NopCloser(nil), slicePool)
 }
 
 // NewFileReader returns a new index reader against the given index file.
-func NewFileReader(path string) (*Reader, error) {
+func NewFileReader(path string, slicePool pool.Pool) (*Reader, error) {
 	f, err := fileutil.OpenMmapFile(path)
 	if err != nil {
 		return nil, err
 	}
-	r, err := newReader(realByteSlice(f.Bytes()), f)
+	r, err := newReader(realByteSlice(f.Bytes()), f, slicePool)
 	if err != nil {
 		return nil, tsdb_errors.NewMulti(
 			err,
@@ -1172,12 +1175,18 @@ func NewFileReader(path string) (*Reader, error) {
 	return r, nil
 }
 
-func newReader(b ByteSlice, c io.Closer) (*Reader, error) {
+func newReader(b ByteSlice, c io.Closer, slicePool pool.Pool) (*Reader, error) {
+	if slicePool == nil {
+		slicePool = pool.NewNoOpPool(func(sz int) interface{} {
+			return make([]string, 0, sz)
+		})
+	}
 	r := &Reader{
-		b:        b,
-		c:        c,
-		postings: map[string][]postingOffset{},
-		st:       labels.NewSymbolTable(),
+		b:         b,
+		c:         c,
+		postings:  map[string][]postingOffset{},
+		st:        labels.NewSymbolTable(),
+		slicePool: slicePool,
 	}
 
 	// Verify header.
@@ -1536,7 +1545,7 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 	if len(e) == 0 {
 		return nil, nil
 	}
-	values := make([]string, 0, len(e)*symbolFactor)
+	values := r.slicePool.Get(len(e) * symbolFactor).([]string)
 
 	d := encoding.NewDecbufAt(r.b, int(r.toc.PostingsTable), nil)
 	d.Skip(e[0].off)

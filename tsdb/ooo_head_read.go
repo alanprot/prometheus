@@ -178,7 +178,8 @@ func (oh *OOOHeadIndexReader) LabelValues(ctx context.Context, name string, matc
 	}
 
 	if len(matchers) == 0 {
-		return oh.head.postings.LabelValues(ctx, name), nil
+		vls, _ := oh.head.postings.LabelValues(ctx, name)
+		return vls, nil
 	}
 
 	return labelValuesWithMatchers(ctx, oh, name, matchers...)

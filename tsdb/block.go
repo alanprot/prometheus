@@ -37,6 +37,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
+	"github.com/prometheus/prometheus/util/pool"
 )
 
 // IndexWriter serializes the index for a block of series data.
@@ -323,6 +324,8 @@ type Block struct {
 	numBytesMeta      int64
 }
 
+var slicePool = pool.NewBucketedPool(1e3, 100e6, 3, func(sz int) interface{} { return make([]string, 0, sz) })
+
 // OpenBlock opens the block in the directory. It can be passed a chunk pool, which is used
 // to instantiate chunk structs.
 func OpenBlock(logger log.Logger, dir string, pool chunkenc.Pool) (pb *Block, err error) {
@@ -346,7 +349,7 @@ func OpenBlock(logger log.Logger, dir string, pool chunkenc.Pool) (pb *Block, er
 	}
 	closers = append(closers, cr)
 
-	ir, err := index.NewFileReader(filepath.Join(dir, indexFilename))
+	ir, err := index.NewFileReader(filepath.Join(dir, indexFilename), slicePool)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +432,7 @@ func (pb *Block) Index() (IndexReader, error) {
 	if err := pb.startRead(); err != nil {
 		return nil, err
 	}
-	return blockIndexReader{ir: pb.indexr, b: pb}, nil
+	return &blockIndexReader{ir: pb.indexr, b: pb}, nil
 }
 
 // Chunks returns a new ChunkReader against the block data.
@@ -466,13 +469,15 @@ func (pb *Block) setCompactionFailed() error {
 type blockIndexReader struct {
 	ir IndexReader
 	b  *Block
+
+	slicesToReturn [][]string
 }
 
-func (r blockIndexReader) Symbols() index.StringIter {
+func (r *blockIndexReader) Symbols() index.StringIter {
 	return r.ir.Symbols()
 }
 
-func (r blockIndexReader) SortedLabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
+func (r *blockIndexReader) SortedLabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
 	var st []string
 	var err error
 
@@ -490,19 +495,20 @@ func (r blockIndexReader) SortedLabelValues(ctx context.Context, name string, ma
 	return st, nil
 }
 
-func (r blockIndexReader) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
+func (r *blockIndexReader) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
 	if len(matchers) == 0 {
 		st, err := r.ir.LabelValues(ctx, name)
 		if err != nil {
 			return st, fmt.Errorf("block: %s: %w", r.b.Meta().ULID, err)
 		}
+		r.slicesToReturn = append(r.slicesToReturn, st)
 		return st, nil
 	}
 
 	return labelValuesWithMatchers(ctx, r.ir, name, matchers...)
 }
 
-func (r blockIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, error) {
+func (r *blockIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, error) {
 	if len(matchers) == 0 {
 		return r.b.LabelNames(ctx)
 	}
@@ -510,7 +516,7 @@ func (r blockIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 	return labelNamesWithMatchers(ctx, r.ir, matchers...)
 }
 
-func (r blockIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
+func (r *blockIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
 	p, err := r.ir.Postings(ctx, name, values...)
 	if err != nil {
 		return p, fmt.Errorf("block: %s: %w", r.b.Meta().ULID, err)
@@ -518,34 +524,37 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 	return p, nil
 }
 
-func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
+func (r *blockIndexReader) SortedPostings(p index.Postings) index.Postings {
 	return r.ir.SortedPostings(p)
 }
 
-func (r blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
+func (r *blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
 	return r.ir.ShardedPostings(p, shardIndex, shardCount)
 }
 
-func (r blockIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
+func (r *blockIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	if err := r.ir.Series(ref, builder, chks); err != nil {
 		return fmt.Errorf("block: %s: %w", r.b.Meta().ULID, err)
 	}
 	return nil
 }
 
-func (r blockIndexReader) Close() error {
+func (r *blockIndexReader) Close() error {
+	for _, s := range r.slicesToReturn {
+		slicePool.Put(s[:0])
+	}
 	r.b.pendingReaders.Done()
 	return nil
 }
 
 // LabelValueFor returns label value for the given label name in the series referred to by ID.
-func (r blockIndexReader) LabelValueFor(ctx context.Context, id storage.SeriesRef, label string) (string, error) {
+func (r *blockIndexReader) LabelValueFor(ctx context.Context, id storage.SeriesRef, label string) (string, error) {
 	return r.ir.LabelValueFor(ctx, id, label)
 }
 
 // LabelNamesFor returns all the label names for the series referred to by IDs.
 // The names returned are sorted.
-func (r blockIndexReader) LabelNamesFor(ctx context.Context, ids ...storage.SeriesRef) ([]string, error) {
+func (r *blockIndexReader) LabelNamesFor(ctx context.Context, ids ...storage.SeriesRef) ([]string, error) {
 	return r.ir.LabelNamesFor(ctx, ids...)
 }
 

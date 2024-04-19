@@ -892,7 +892,8 @@ func TestHead_Truncate(t *testing.T) {
 			ss = map[string]struct{}{}
 			values[name] = ss
 		}
-		for _, value := range h.postings.LabelValues(ctx, name) {
+		v, _ := h.postings.LabelValues(ctx, name)
+		for _, value := range v {
 			ss[value] = struct{}{}
 		}
 	}
