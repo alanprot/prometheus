@@ -180,6 +180,46 @@ func queryChunks(t testing.TB, q storage.ChunkQuerier, matchers ...*labels.Match
 	return result
 }
 
+func TestDB_QueryAndPush(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	ctx := context.Background()
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	wg := sync.WaitGroup{}
+	iteractions := 100
+	concurrency := 100
+
+	for k := 0; k < iteractions; k++ {
+		metricName := fmt.Sprintf("test_metric_%d", k)
+		wg.Add(concurrency * 2)
+		for i := 0; i < concurrency; i++ {
+			go func() {
+				defer wg.Done()
+				app := db.Appender(ctx)
+				_, err := app.Append(0, labels.FromStrings(labels.MetricName, metricName, "i", strconv.Itoa(i)), 0, 0)
+				require.NoError(t, err)
+				err = app.Commit()
+				require.NoError(t, err)
+			}()
+
+			go func() {
+				defer wg.Done()
+				q, err := db.Querier(0, math.MaxInt64)
+				require.NoError(t, err)
+				res := q.Select(ctx, false, nil, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, metricName))
+				require.NoError(t, res.Err())
+				for res.Next() {
+
+				}
+			}()
+		}
+
+		wg.Wait()
+	}
+}
+
 // Ensure that blocks are held in memory in their time order
 // and not in ULID order as they are read from the directory.
 func TestDB_reloadOrder(t *testing.T) {
