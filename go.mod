@@ -1,7 +1,6 @@
 module github.com/prometheus/prometheus
 
 go 1.22.0
-
 toolchain go1.23.0
 
 require (
@@ -20,7 +19,7 @@ require (
 	github.com/digitalocean/godo v1.126.0
 	github.com/docker/docker v27.3.1+incompatible
 	github.com/edsrzf/mmap-go v1.1.0
-	github.com/envoyproxy/go-control-plane v0.13.0
+	github.com/envoyproxy/go-control-plane/envoy v1.32.2
 	github.com/envoyproxy/protoc-gen-validate v1.1.0
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb
 	github.com/fsnotify/fsnotify v1.7.0
@@ -58,7 +57,7 @@ require (
 	github.com/prometheus/exporter-toolkit v0.13.0
 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.30
 	github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/vultr/govultr/v2 v2.17.2
 	go.opentelemetry.io/collector/pdata v1.16.0
 	go.opentelemetry.io/collector/semconv v0.110.0
@@ -81,7 +80,7 @@ require (
 	google.golang.org/api v0.199.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240903143218-8af14fe29dc1
 	google.golang.org/grpc v1.67.1
-	google.golang.org/protobuf v1.34.2
+	google.golang.org/protobuf v1.35.2
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.31.1
