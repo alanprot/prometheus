@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"testing"
 
@@ -381,5 +382,29 @@ func BenchmarkMmapHeadChunks(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+func BenchmarkHeadStripeSeriesGC(b *testing.B) {
+	for _, numSeries := range []int{100_000, 1_000_000} {
+		b.Run(fmt.Sprintf("series=%d", numSeries), func(b *testing.B) {
+			h, _ := NewHead(nil, nil, nil, nil, DefaultHeadOptions(), nil)
+			defer h.Close()
+
+			for i := 0; i < numSeries; i++ {
+				lset := labels.FromStrings("__name__", "test", "instance", fmt.Sprintf("inst_%d", i))
+				h.getOrCreate(lset.Hash(), lset, false)
+			}
+
+			runtime.GC()
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			b.ReportMetric(float64(m.HeapObjects), "heap-objects")
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				runtime.GC()
+			}
+		})
 	}
 }

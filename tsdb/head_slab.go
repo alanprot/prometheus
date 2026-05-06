@@ -34,10 +34,6 @@ func (sl *seriesSlab) alloc() (uint32, *memSeries) {
 }
 
 // free returns the slot at the given index to the free list for reuse.
-// The slot contents are NOT zeroed — callers must initialize all fields
-// when the slot is reallocated via alloc(). This avoids races with
-// concurrent readers that may still hold a pointer to the slot.
-// free returns the slot at the given index to the free list for reuse.
 // The slot contents are NOT zeroed here — zeroing happens in alloc() when
 // the slot is recycled. This avoids races with concurrent readers that may
 // still hold a pointer to the slot.
