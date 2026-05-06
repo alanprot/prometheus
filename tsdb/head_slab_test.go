@@ -31,12 +31,11 @@ func TestSeriesSlab_FreeAndReuse(t *testing.T) {
 	idx1, s1 := sl.alloc()
 	idx2, _ := sl.alloc()
 
-	// Set a field so we can verify zeroing.
+	// Set a field to verify slot is reusable (not zeroed — callers init on alloc).
 	s1.ref = 99
 
 	// Free middle slot.
 	sl.free(idx1)
-	require.Equal(t, chunks.HeadSeriesRef(0), sl.get(idx1).ref)
 	require.Equal(t, 1, len(sl.freeList))
 
 	// Next alloc reuses freed slot.

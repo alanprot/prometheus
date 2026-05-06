@@ -21,7 +21,9 @@ func (sl *seriesSlab) alloc() (uint32, *memSeries) {
 	if n := len(sl.freeList); n > 0 {
 		idx := sl.freeList[n-1]
 		sl.freeList = sl.freeList[:n-1]
-		return idx, sl.get(idx)
+		s := sl.get(idx)
+		*s = memSeries{}
+		return idx, s
 	}
 	idx := sl.count
 	if int(idx/slabBlockSize) >= len(sl.blocks) {
@@ -31,8 +33,14 @@ func (sl *seriesSlab) alloc() (uint32, *memSeries) {
 	return idx, sl.get(idx)
 }
 
-// Free zeroes the memSeries at the given slot index and returns it to the free list.
+// free returns the slot at the given index to the free list for reuse.
+// The slot contents are NOT zeroed — callers must initialize all fields
+// when the slot is reallocated via alloc(). This avoids races with
+// concurrent readers that may still hold a pointer to the slot.
+// free returns the slot at the given index to the free list for reuse.
+// The slot contents are NOT zeroed here — zeroing happens in alloc() when
+// the slot is recycled. This avoids races with concurrent readers that may
+// still hold a pointer to the slot.
 func (sl *seriesSlab) free(idx uint32) {
-	*sl.get(idx) = memSeries{}
 	sl.freeList = append(sl.freeList, idx)
 }

@@ -255,7 +255,7 @@ Outer:
 		switch v := d.(type) {
 		case []record.RefSeries:
 			for _, walSeries := range v {
-				mSeries, created, err := h.getOrCreateWithOptionalID(walSeries.Ref, walSeries.Labels.Hash(), walSeries.Labels, false)
+				mSeriesRef, mSeries, created, err := h.getOrCreateWithOptionalID(walSeries.Ref, walSeries.Labels.Hash(), walSeries.Labels, false)
 				if err != nil {
 					seriesCreationErr = err
 					break Outer
@@ -265,10 +265,10 @@ Outer:
 					h.lastSeriesID.Store(uint64(walSeries.Ref))
 				}
 				if !created {
-					multiRef[walSeries.Ref] = mSeries.ref
+					multiRef[walSeries.Ref] = mSeriesRef
 				}
 
-				idx := uint64(mSeries.ref) % uint64(concurrency)
+				idx := uint64(mSeriesRef) % uint64(concurrency)
 				processors[idx].input <- walSubsetProcessorInputItem{walSeriesRef: walSeries.Ref, existingSeries: mSeries}
 			}
 			for i := range v { // Zero out to avoid retaining label data.
@@ -1384,7 +1384,8 @@ func (h *Head) ChunkSnapshot() (*ChunkSnapshotStats, error) {
 	for i := range stripeSize {
 		h.series.locks[i].RLock()
 
-		for _, s := range h.series.series[i] {
+		for _, idx := range h.series.series[i] {
+			s := h.series.slabs[i].get(idx)
 			start := len(buf)
 			buf = s.encodeToSnapshotRecord(buf)
 			if len(buf[start:]) == 0 {
@@ -1642,14 +1643,14 @@ func (h *Head) loadChunkSnapshot() (int, int, map[chunks.HeadSeriesRef]*memSerie
 			localRefSeries := shardedRefSeries[idx]
 
 			for csr := range rc {
-				series, _, err := h.getOrCreateWithOptionalID(csr.ref, csr.lset.Hash(), csr.lset, false)
+				seriesRef, series, _, err := h.getOrCreateWithOptionalID(csr.ref, csr.lset.Hash(), csr.lset, false)
 				if err != nil {
 					errChan <- err
 					return
 				}
 				localRefSeries[csr.ref] = series
 				for {
-					seriesID := uint64(series.ref)
+					seriesID := uint64(seriesRef)
 					lastSeriesID := h.lastSeriesID.Load()
 					if lastSeriesID >= seriesID || h.lastSeriesID.CompareAndSwap(lastSeriesID, seriesID) {
 						break

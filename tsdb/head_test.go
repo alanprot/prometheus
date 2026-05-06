@@ -1226,7 +1226,7 @@ func TestHead_KeepSeriesInWALCheckpoint(t *testing.T) {
 		{
 			name: "keep series still in the head",
 			prepare: func(t *testing.T, h *Head) {
-				_, _, err := h.getOrCreateWithOptionalID(chunks.HeadSeriesRef(existingRef), existingLbls.Hash(), existingLbls, false)
+				_, _, _, err := h.getOrCreateWithOptionalID(chunks.HeadSeriesRef(existingRef), existingLbls.Hash(), existingLbls, false)
 				require.NoError(t, err)
 			},
 			expected: true,
@@ -6808,25 +6808,19 @@ func stripeSeriesWithCollidingSeries(t *testing.T) (*stripeSeries, *memSeries, *
 	t.Helper()
 
 	lbls1, lbls2 := labelsWithHashCollision()
-	ms1 := memSeries{
-		lset: lbls1,
-	}
-	ms2 := memSeries{
-		lset: lbls2,
-	}
 	hash := lbls1.Hash()
 	s := newStripeSeries(1, noopSeriesLifecycleCallback{})
 
-	got, created := s.setUnlessAlreadySet(hash, lbls1, &ms1)
+	_, got1, created := s.setUnlessAlreadySet(hash, lbls1, 1, 0, defaultIsolationDisabled, false)
 	require.True(t, created)
-	require.Same(t, &ms1, got)
+	require.Equal(t, lbls1, got1.lset)
 
 	// Add a conflicting series
-	got, created = s.setUnlessAlreadySet(hash, lbls2, &ms2)
+	_, got2, created := s.setUnlessAlreadySet(hash, lbls2, 2, 0, defaultIsolationDisabled, false)
 	require.True(t, created)
-	require.Same(t, &ms2, got)
+	require.Equal(t, lbls2, got2.lset)
 
-	return s, &ms1, &ms2
+	return s, got1, got2
 }
 
 func TestStripeSeries_getOrSet(t *testing.T) {
@@ -8163,7 +8157,8 @@ func TestHead_mmapHeadChunks(t *testing.T) {
 		n := 0
 		for i := range h.series.size {
 			h.series.locks[i].RLock()
-			for _, s := range h.series.series[i] {
+			for _, idx := range h.series.series[i] {
+				s := h.series.slabs[i].get(idx)
 				if s.headChunkCount.Load() >= 2 {
 					n++
 				}
