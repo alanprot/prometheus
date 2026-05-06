@@ -2454,6 +2454,10 @@ type memSeries struct {
 	// been explicitly enabled in TSDB.
 	shardHash uint64
 
+	// slabIdx is the index of this series within its ref-shard's seriesSlab.
+	// Set once during allocation; used during GC to free the slot.
+	slabIdx uint32
+
 	// Everything after here should only be accessed with the lock held.
 	sync.Mutex
 
